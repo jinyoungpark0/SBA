@@ -36,30 +36,31 @@ Inflected forms count (tormented, miserable, hardships); "pain" does not match "
 Keyword hits are flagged as candidates and recorded in the archive. Each chunk is also scanned for Christine's **seed words** — a vocabulary tied to her nine construct dimensions (prevalence, controllability, meaning, fairness, etc.). These seed matches are recorded as secondary annotations but do not determine whether a chunk enters the pipeline. The seed words live in `seed_topics.py`, which is not in this repo; without it the pipeline runs and leaves `seed_constructs` blank.
 
 ### Stage 3a — Screening (Claude Haiku)
-*Every* chunk — not just keyword hits — is screened with a yes/no question: could any part of it plausibly be read as stating, implying or disputing a general claim about the nature, cause, meaning, purpose, or value of suffering? The screen favors recall: when unsure, YES.
+*Every* chunk — not just keyword hits — is screened with a yes/no question: could any part of it plausibly be read as stating, implying or disputing a general claim about suffering as a phenomenon, on any aspect of it? The screen favors recall: when unsure, YES.
 
 Chunks that screen YES but had no keyword hit are **contextual passages** — beliefs the keyword search would have missed. The share of contextual passages in the final archive is the keyword-recall estimate reported in the methods.
 
 ### Stage 3b — Filter (Claude Haiku)
 All keyword-hit chunks and contextual chunks are sent the full filter question:
-> "Does this passage express or imply a general belief about the nature, cause, meaning, purpose, or value of suffering as a phenomenon?"
+> "Does this passage express or imply a general belief about suffering as a phenomenon, on any aspect of it?"
+
+What counts as a belief is defined once, in the system prompt: the aspects it lists (what suffering is, how common it is, why it happens, what it does to people, how controllable it is, how to respond to one's own or others' suffering, how to judge it overall) are examples, and a claim about any other aspect counts equally.
 
 The model returns **YES**, **MAYBE**, or **NO** with a one-line reason, plus, for YES/MAYBE passages, a verbatim evidence quote and a one-sentence core belief. Only YES and MAYBE passages proceed to Stage 4.
 
 ### Stage 4 — Open coding (Claude Sonnet)
-The tagger is given **no code list**. For each belief a passage asserts or explicitly denies, it returns:
+The tagger is given **no code list and no list of topics**, so that beliefs nobody anticipated can surface. For each belief a passage asserts or explicitly denies, it returns:
 
 - a two-to-four-word **label** and a one-sentence **definition** in everyday words
 - a verbatim **evidence** quote
 - a **stance** (asserts or denies)
-- one primary **construct dimension** from Christine's nine, and at most one secondary
 
 These go to `results/open_codes.csv`, one row per belief. The classification is built from these open codes; it is not assumed in advance.
 
 The earlier seven-code working classification (punishment, growth, craving, shared condition, compassion, acceptance, mystery) is **not used in this pass**. It remains in `pipeline.py` only for the deductive tag prompt (`tag_v3`), which is meant to be run later against the classification derived from the open codes.
 
-### Stage 5 — Rating (Claude Sonnet)
-Each asserted belief is rated 1–5 on evaluation, inevitability and intertwinement, with blank meaning the belief takes no position. See "Prompt layout" below.
+### Stage 5 — Areas and ratings (Claude Sonnet)
+Only after the beliefs have been named are they placed on a fixed grid. Each belief gets one **area**; each asserted belief is also rated 1–5 on evaluation, inevitability and intertwinement, with blank meaning the belief takes no position. See "Prompt layout" below.
 
 ### After the run — Clustering
 `python cluster_open_codes.py` groups the beliefs by the similarity of their definitions and writes `results/cluster_summary.csv`: one row per candidate theme, with its size, most common labels and most central definition, for the team to name, merge and split into classification v1. It needs `pip install pandas scikit-learn sentence-transformers`; use `--scan` to see how many clusters different thresholds give, and `--k 30` to ask for a fixed number.
@@ -80,9 +81,13 @@ The tag step has two modes, chosen by `TAG_PROMPT_VERSION` in `config.py`:
 - `tag_open_v1` (current setting): **open coding**. The tagger is given no code list. For each belief a passage asserts or explicitly denies it returns a label, a one-sentence definition, a verbatim evidence quote and a stance. These go to `results/open_codes.csv`, one row per belief, which is the input for building the classification. In the archive, `tags` is empty and `open_labels` lists the labels.
 - `tag_v3`: **deductive coding** against the working classification in `pipeline.py`. Use it once a classification has been built from the open codes.
 
-In open coding each belief also gets one primary construct dimension and at most one secondary, so `open_codes.csv` can be tabulated by dimension to check coverage. Names outside the list are recorded as `INVALID(...)`.
+**Step 5, areas and ratings (`rate_v1`).** After open coding, each belief is assigned one area, so `open_codes.csv` can be tabulated to check coverage. The grid (`BELIEF_AREAS` in `pipeline.py`) follows the qualitative interview guide, so the text and interview streams share one grid:
 
-**Step 5, rating (`rate_v1`).** After open coding, each asserted belief is rated 1-5 on three dimensions, with blank meaning the belief takes no position:
+`understanding`, `prevalence`, `causes`, `consequences`, `controllability`, `personal_response`, `interpersonal_response`, `overall_evaluation`, plus `meaning_fairness` (prominent in the texts, absent from the guide) and `other`.
+
+A belief that fits no area is coded `other`, with a few words in `area_note` on what it is about; those rows are the candidates for areas the guide does not cover. Names outside the list are recorded as `INVALID(...)`. The grid is applied after open coding on purpose: it describes the beliefs that were found and plays no part in finding or naming them. Christine's nine construct dimensions are still used by `tag_v2` and `tag_v3`.
+
+Each asserted belief is also rated 1-5 on three dimensions, with blank meaning the belief takes no position:
 
 | Rating | 1 | 5 |
 |--------|---|---|
@@ -90,7 +95,7 @@ In open coding each belief also gets one primary construct dimension and at most
 | `rating_inevitability` | avoidable or exceptional | an inevitable part of every life |
 | `rating_intertwinement` | separate from and opposed to what is good in life | bound up with what people care about most |
 
-One call per passage (`RATE_MODEL`); results are columns in `open_codes.csv`, with empty `human_*` columns for blind validation. Denied beliefs are not rated. Set `RATE_PROMPT_VERSION = None` in `config.py` to skip the step. Before analysis: validate the ratings against human coders, and remove duplicate beliefs that come from the 200-word overlap between chunks.
+One call per passage (`RATE_MODEL`); results are columns in `open_codes.csv`, with empty `human_*` columns for blind validation. Denied beliefs get an area but no ratings. Set `RATE_PROMPT_VERSION = None` in `config.py` to skip the step. Before analysis: validate the ratings against human coders, and remove duplicate beliefs that come from the 200-word overlap between chunks.
 
 The original prompts (`screen_v1`, `filter_v2`, `tag_v2`) still run unchanged: a prompt file without `<<PASSAGE>>` is sent as the system message with the passage as the user message, as before. Set the versions in `config.py`.
 

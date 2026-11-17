@@ -52,7 +52,8 @@ SCREEN_PROMPT_VERSION = "screen_v2"
 FILTER_PROMPT_VERSION = "filter_v3"
 TAG_PROMPT_VERSION    = "tag_open_v1"
 
-# Step 5: rate each open-coded belief on evaluation, inevitability and
-# intertwinement (1-5, blank = no position). Runs only after tag_open_v1.
-# Set to None to skip the step.
+# Step 5: place each open-coded belief in an area (BELIEF_AREAS in pipeline.py)
+# and rate it on evaluation, inevitability and intertwinement (1-5, blank = no
+# position). Runs only after tag_open_v1. Set to None to skip the step; areas
+# and ratings are then left blank.
 RATE_PROMPT_VERSION   = "rate_v1"

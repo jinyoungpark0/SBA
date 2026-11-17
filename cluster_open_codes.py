@@ -121,8 +121,8 @@ def main():
             "central_definition": central["definition"],
             "other_definitions": " | ".join(d for d in g["definition"].drop_duplicates()[:6]
                                             if d != central["definition"]),
-            "primary_constructs": "; ".join(f"{k} ({v})" for k, v in
-                                            g["primary_construct"].replace("", "none").value_counts().items()),
+            "areas": "; ".join(f"{k} ({v})" for k, v in
+                               g["area"].replace("", "not assigned").value_counts().items()) if "area" in g else "",
             # For the consolidation meeting
             "theme_name": "", "decision": "", "notes": "",
         })

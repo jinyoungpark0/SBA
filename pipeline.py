@@ -39,8 +39,8 @@ WORKING_CLASSIFICATION = """\
 7. Mystery/unknowable      — Suffering's meaning is unknowable to humans
 0. None of the above       — propose a new candidate belief"""
 
-# Used in every tag prompt. In open coding each belief gets one primary dimension
-# and at most one secondary, as a coverage check.
+# Filled in where a tag prompt contains <<CONSTRUCTS>>: tag_v2 and tag_v3 only.
+# The open-coding prompt (tag_open_v1) is given no list of any kind.
 CONSTRUCT_DIMENSIONS = """\
 - prevalence      : how common or universal suffering is
 - controllability : whether suffering can be avoided or controlled
@@ -52,8 +52,23 @@ CONSTRUCT_DIMENSIONS = """\
 - responsibility  : who bears responsibility for suffering
 - helpful_responses: how one should respond to suffering"""
 
-CONSTRUCT_NAMES = [line.split(":")[0].strip("- ").strip()
-                   for line in CONSTRUCT_DIMENSIONS.splitlines()]
+# Step 5 grid (rate_v1). Follows the qualitative interview guide's areas, so the
+# text and interview streams can be compared on one grid, plus meaning_fairness
+# (prominent in the texts, absent from the guide) and other. Assigned AFTER open
+# coding, so the grid cannot shape which beliefs are found or how they are named.
+BELIEF_AREAS = """\
+- understanding          : what suffering is, what counts as suffering, how it shows itself
+- prevalence             : how common or expected suffering is in a human life
+- causes                 : why people suffer
+- consequences           : what suffering does to people
+- controllability        : how much control people have over suffering
+- personal_response      : how people should respond to their own suffering
+- interpersonal_response : how people should respond to the suffering of others
+- overall_evaluation     : how suffering should be judged overall (bad, good, mixed)
+- meaning_fairness       : whether suffering has a purpose or meaning, and whether it is deserved or just
+- other                  : none of the above"""
+
+AREA_NAMES = [line.split(":")[0].strip("- ").strip() for line in BELIEF_AREAS.splitlines()]
 
 # Step 5 ratings (rate_v1): 1-5, or blank when the belief takes no position
 RATING_DIMENSIONS = ["evaluation", "inevitability", "intertwinement"]
@@ -92,7 +107,7 @@ ARCHIVE_FIELDS = [
 OPEN_CODE_FIELDS = [
     "chunk_id", "text_id", "source", "belief_n",
     "label", "definition", "stance", "evidence", "evidence_verbatim",
-    "primary_construct", "other_construct",
+    "area", "area_note",
     "rating_evaluation", "rating_inevitability", "rating_intertwinement", "rating_reason",
     "confidence", "filter_decision", "core_belief",
     # Consolidation and rating validation (empty — for the research team)
@@ -256,7 +271,7 @@ def get_rate_prompt():
     if not version:
         return None
     if _rate_prompt is None:
-        _rate_prompt = load_prompt(version)
+        _rate_prompt = load_prompt(version).replace("<<AREAS>>", BELIEF_AREAS)
     return _rate_prompt
 
 
@@ -286,69 +301,67 @@ def filter_passage(text: str):
 def clean_beliefs(raw):
     """
     Open-coding output (tag_open_v1): one dict per belief with label, definition,
-    stance, evidence and its construct dimensions. A construct name that is not
-    in CONSTRUCT_DIMENSIONS is kept visible as INVALID(<name>), not dropped.
+    stance and evidence. Area and ratings are added by step 5.
     """
-    def construct(value):
-        name = str(value or "").strip()
-        if not name or name.lower() in ("null", "none"):
-            return ""
-        return name if name in CONSTRUCT_NAMES else f"INVALID({name[:30]})"
-
     beliefs = []
     for b in raw if isinstance(raw, list) else []:
         if isinstance(b, dict):
             belief = {k: str(b.get(k) or "").strip()
                       for k in ("label", "definition", "stance", "evidence")}
-            belief["primary_construct"] = construct(b.get("primary_construct"))
-            belief["other_construct"]   = construct(b.get("other_construct"))
-            for dim in RATING_DIMENSIONS:          # filled in by step 5
+            belief["area"] = belief["area_note"] = belief["rating_reason"] = ""
+            for dim in RATING_DIMENSIONS:
                 belief[dim] = ""
-            belief["rating_reason"] = ""
             beliefs.append(belief)
     return beliefs
 
 
-def belief_constructs(beliefs):
-    """Passage-level construct list for the archive, from the beliefs' own dimensions."""
+def belief_areas(beliefs):
+    """Passage-level list for the archive's `constructs` column, from the beliefs' areas."""
     names = []
     for b in beliefs:
-        for name in (b["primary_construct"], b["other_construct"]):
-            if name and not name.startswith("INVALID") and name not in names:
-                names.append(name)
+        name = b["area"]
+        if name and name != "other" and not name.startswith("INVALID") and name not in names:
+            names.append(name)
     return names
 
 
 def rate_beliefs(text: str, beliefs: list):
     """
-    Step 5: rate each asserted belief on RATING_DIMENSIONS (1-5, "" = no position).
-    One call per passage. Fills the belief dicts in place.
-    Returns (ok, usage); ok is None when there was nothing to rate.
+    Step 5: give each belief an area from BELIEF_AREAS, and rate each asserted
+    belief on RATING_DIMENSIONS (1-5, "" = no position). One call per passage.
+    Fills the belief dicts in place. An area name that is not in the list is kept
+    visible as INVALID(<name>), not dropped.
+    Returns (ok, usage); ok is None when there was nothing to do.
     """
-    prompt   = get_rate_prompt()
-    asserted = [b for b in beliefs if b["stance"] != "denies"]
-    if not prompt or not asserted:
+    prompt = get_rate_prompt()
+    if not prompt or not beliefs:
         return None, None
     listing = "\n".join(
-        f'{n}. {b["label"]}: {b["definition"]}\n   Evidence: "{b["evidence"]}"'
-        for n, b in enumerate(asserted, start=1))
+        f'{n}. {b["label"]}{" (denied)" if b["stance"] == "denies" else ""}: {b["definition"]}\n'
+        f'   Evidence: "{b["evidence"]}"'
+        for n, b in enumerate(beliefs, start=1))
     user = prompt.replace("<<BELIEFS>>", listing).replace("<<PASSAGE>>", text)
-    result, usage = call_claude(config.RATE_MODEL, get_system_prompt(), user, max_tokens=800)
+    result, usage = call_claude(config.RATE_MODEL, get_system_prompt(), user, max_tokens=1000)
     parsed  = parse_json(result)
     ratings = parsed.get("ratings") if parsed else None
     if not isinstance(ratings, list):
         return False, usage
     by_number = {r.get("belief"): r for r in ratings if isinstance(r, dict)}
     ok = True
-    for n, b in enumerate(asserted, start=1):
+    for n, b in enumerate(beliefs, start=1):
         r = by_number.get(n)
         if r is None:
             ok = False
             continue
+        area = str(r.get("area") or "").strip()
+        b["area"] = area if area in AREA_NAMES else f"INVALID({area[:30]})"
+        b["area_note"] = str(r.get("area_note") or "").strip() if area == "other" else ""
+        b["rating_reason"] = str(r.get("reason") or "").strip()
+        if b["stance"] == "denies":
+            continue                                  # denied beliefs get an area but no ratings
         for dim in RATING_DIMENSIONS:
             value = r.get(dim)
             b[dim] = value if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 5 else ""
-        b["rating_reason"] = str(r.get("reason") or "").strip()
     return ok, usage
 
 
@@ -363,7 +376,7 @@ def tag_passage(text: str, core_belief: str):
             "rejects":       [int(t) for t in parsed.get("rejects") or []],   # tag_v3
             "beliefs":       clean_beliefs(parsed.get("beliefs")),            # tag_open_v1
             "confidence":    parsed.get("confidence", ""),
-            "constructs":    parsed.get("constructs") or belief_constructs(clean_beliefs(parsed.get("beliefs"))),
+            "constructs":    parsed.get("constructs") or [],
             "new_candidate": parsed.get("new_candidate"),
         }, usage
     return {"tags": [], "rejects": [], "beliefs": [], "confidence": "ERROR",
@@ -422,8 +435,8 @@ def write_labeled_file(source_name: str, chunks: list, run_date: str):
                 for b in chunk.get("beliefs", []):
                     denied = " [denied]" if b["stance"] == "denies" else ""
                     f.write(f"OPEN CODE: {b['label']}{denied} — {b['definition']}\n")
-                    detail = [f"construct {b['primary_construct'] or 'none'}"
-                              + (f" + {b['other_construct']}" if b["other_construct"] else "")]
+                    detail = [f"area {b['area'] or 'not assigned'}"
+                              + (f" ({b['area_note']})" if b["area_note"] else "")]
                     if any(b[dim] != "" for dim in RATING_DIMENSIONS):
                         detail += [f"{dim} {b[dim] if b[dim] != '' else 'NA'}" for dim in RATING_DIMENSIONS]
                     f.write(f"CODE DETAIL: {', '.join(detail)}\n")
@@ -569,15 +582,17 @@ def run():
                 run_log["errors"].append(f"{chunk['chunk_id']} tag")
             time.sleep(0.05)
 
-        # Step 5 — rate the open-coded beliefs (open-coding runs only)
+        # Step 5 — areas and ratings for the open-coded beliefs (open-coding runs only)
         to_rate = [c for c in to_tag if c["beliefs"]]
         if to_rate and get_rate_prompt():
-            print(f"  Rating beliefs in {len(to_rate)} passages...")
+            print(f"  Assigning areas and ratings in {len(to_rate)} passages...")
         for chunk in to_rate:
-            for b in chunk["beliefs"]:
-                if b["primary_construct"].startswith("INVALID") or b["other_construct"].startswith("INVALID"):
-                    run_log["errors"].append(f"{chunk['chunk_id']} construct name")
             ok, usage = rate_beliefs(chunk["text"], chunk["beliefs"])
+            if ok is not None:
+                chunk["constructs"] = belief_areas(chunk["beliefs"])
+            for b in chunk["beliefs"]:
+                if b["area"].startswith("INVALID"):
+                    run_log["errors"].append(f"{chunk['chunk_id']} area name")
             if usage:
                 run_log["tokens"]["input"]  += usage.input_tokens
                 run_log["tokens"]["output"] += usage.output_tokens
@@ -655,8 +670,8 @@ def run():
                     "stance":     b["stance"],
                     "evidence":   b["evidence"],
                     "evidence_verbatim": is_verbatim(b["evidence"], chunk["text"]),
-                    "primary_construct": b["primary_construct"],
-                    "other_construct":   b["other_construct"],
+                    "area":      b["area"],
+                    "area_note": b["area_note"],
                     "rating_evaluation":     b["evaluation"],
                     "rating_inevitability":  b["inevitability"],
                     "rating_intertwinement": b["intertwinement"],

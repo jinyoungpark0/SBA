@@ -1,4 +1,4 @@
-Step 5: rating.
+Step 5: areas and ratings.
 
 <passage>
 <<PASSAGE>>
@@ -7,7 +7,18 @@ Step 5: rating.
 Beliefs coded in this passage:
 <<BELIEFS>>
 
-Rate where each belief stands on the three dimensions below. Rate the belief as this passage expresses it, using the passage for context. The dimensions are independent: a belief can be high on one and low on another. Neither end of any scale is the better answer; the ratings describe positions and do not grade them.
+These beliefs were named freely, without reference to any scheme. This step places each one on a fixed grid, so that coverage can be checked, and rates it. Use the passage for context.
+
+AREA
+
+Assign each belief the one area it is mainly about:
+<<AREAS>>
+
+Use "other" when the belief is mainly about something this list does not cover, and say in area_note, in a few words, what that is. "other" is a useful answer: it shows where the list is incomplete. Do not stretch an area to make a belief fit.
+
+RATINGS
+
+Rate where each belief stands on the three dimensions below, as this passage expresses it. The dimensions are independent: a belief can be high on one and low on another. Neither end of any scale is the better answer; the ratings describe positions and do not grade them.
 
 evaluation: is suffering only harmful, or can it also be of value?
 1 = suffering is purely harmful; nothing good comes of it
@@ -26,8 +37,12 @@ intertwinement: how is suffering related to the good things in life?
 
 Use 2 and 4 for positions between the anchors. Use null when the belief takes no position on a dimension. A null is better than a guess: do not infer a position from the kind of source this is or from what a tradition is known for.
 
+A belief marked (denied) is one the passage rejects. Give its area, and leave its three ratings null.
+
 Respond with one JSON object:
-{"ratings": [{"belief": 1, "reason": "...", "evaluation": 1-5 or null, "inevitability": 1-5 or null, "intertwinement": 1-5 or null}]}
+{"ratings": [{"belief": 1, "area": "name", "area_note": "..." or null, "reason": "...", "evaluation": 1-5 or null, "inevitability": 1-5 or null, "intertwinement": 1-5 or null}]}
 
 Give one entry per belief, in the order listed, with "belief" set to its number.
+area: written exactly as named in the list.
+area_note: only when area is "other"; otherwise null.
 reason: at most 25 words on what in the passage the ratings rest on.

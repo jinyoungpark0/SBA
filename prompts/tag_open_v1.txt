@@ -1,8 +1,5 @@
 Step 4: open coding.
 
-Construct dimensions:
-<<CONSTRUCTS>>
-
 <passage>
 <<PASSAGE>>
 </passage>
@@ -10,10 +7,10 @@ Construct dimensions:
 Core belief from the filter step: "<<CORE_BELIEF>>"
 The core belief is a one-sentence first-pass summary and may be incomplete or wrong. Code from the passage.
 
-Name each suffering belief this passage asserts or explicitly denies. There is no code list at this stage. The project is building its classification from what the texts say, so describe each belief in its own terms and do not fit it to categories you expect to find.
+Name each suffering belief this passage asserts or explicitly denies. There is no code list and no list of topics at this stage. The project is building its classification from what the texts say, so describe each belief in its own terms and do not fit it to categories you expect to find. A belief of a kind nobody anticipated is as welcome as a familiar one.
 
 Respond with one JSON object, fields in this order:
-{"beliefs": [{"evidence": "...", "definition": "...", "label": "...", "stance": "asserts"|"denies", "primary_construct": "name", "other_construct": "name" or null}], "confidence": "HIGH"|"MEDIUM"|"LOW"}
+{"beliefs": [{"evidence": "...", "definition": "...", "label": "...", "stance": "asserts"|"denies"}], "confidence": "HIGH"|"MEDIUM"|"LOW"}
 
 beliefs: one entry for each distinct belief that passes the five tests. Two claims are distinct beliefs when the same person could agree with one and disagree with the other. Otherwise they are one belief and are listed once. A long passage may hold several. A passage may also hold none, because the filter step can be wrong; in that case return an empty list.
 
@@ -24,10 +21,6 @@ definition: the belief as one short sentence in everyday words, where possible b
 label: two to four plain words naming the belief, as general as the definition. The same belief met in a different passage should receive the same label, so prefer the most ordinary wording.
 
 stance: "asserts" if the passage puts the belief forward, "denies" if it explicitly rejects it. For a denied belief, write the definition and label for the belief being denied: a passage saying pain is not a punishment denies the belief that suffering is punishment.
-
-primary_construct: the one dimension from the list above that this belief is mainly about, written exactly as named there. Every belief gets exactly one.
-
-other_construct: a second dimension, only if the belief clearly takes a position on it as well. Otherwise null. Do not add one because the topic could be related to it.
 
 confidence: how likely an independent trained coder, reading only this passage, would find the same beliefs.
 HIGH: very likely the same beliefs.
