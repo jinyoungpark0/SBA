@@ -37,7 +37,7 @@ intertwinement: how is suffering related to the good things in life?
 
 Use 2 and 4 for positions between the anchors. Use null when the belief takes no position on a dimension. A null is better than a guess: do not infer a position from the kind of source this is or from what a tradition is known for.
 
-A belief marked (denied) is one the passage rejects. Give its area, and leave its three ratings null.
+A belief marked (denied) is one the passage rejects, and one marked (mentioned only) is one it reports without taking a side. For these, give the area and leave the three ratings null.
 
 Respond with one JSON object:
 {"ratings": [{"belief": 1, "area": "name", "area_note": "..." or null, "reason": "...", "evaluation": 1-5 or null, "inevitability": 1-5 or null, "intertwinement": 1-5 or null}]}

@@ -28,7 +28,7 @@ JUDGMENT CALLS
 
 Most of the difficulty lies in a few recurring cases.
 
-A passage can be about suffering without asserting a belief about it. Narrative, description and complaint are common in these texts and usually carry no general claim. The topic alone is not enough. 
+A passage can be about suffering without asserting a belief about it. Narrative, description and complaint are common in these texts and usually carry no general claim. The topic alone is not enough.
 
 A belief may be implied. Count it when you can complete the sentence "This passage claims that suffering ..." using only what is on the page. Do not count it when the claim has to be supplied from what you know about the work.
 
@@ -40,7 +40,7 @@ A passage that denies a belief ("your pain is not a punishment") is still making
 
 A general claim about how people should respond to suffering, their own or someone else's, is a belief ("suffering should be accepted, not fought"; "people who suffer should not be left alone"). A specific technique or instruction ("breathe slowly", "write it down") is not, unless the passage also states the belief behind it.
 
-A story or poem can show suffering in a way that fits a belief (the wicked punished, the patient rewarded) without the narrator or any character stating it. 
+A story or poem can show suffering in a way that fits a belief (the wicked punished, the patient rewarded) without the narrator or any character stating it. This counts as a belief when the passage itself makes the link, presenting the suffering as following from the wickedness, or the reward from the patience. When the link is left for the reader to supply, it is borderline. In either case go by what this passage shows, not by the moral the work is known for.
 
 SPOKEN AND CONTEMPORARY SOURCES
 
@@ -52,7 +52,7 @@ Personal experience is the usual starting point. A speaker recounting what happe
 
 Advice addressed to "you" often contains a general claim in the second person: "your grief is not a flaw" says something about grief. A bare instruction with no such claim is not a belief.
 
-Stock phrases and slogans ("time heals all wounds", "what doesn't kill you makes you stronger") can be coded as societal beleifs. People can agree and disagree with those saying. Code whether the societal belief is endorsed, denided, just stated or else (e.g., context dependant). If the speaker goes on to explain what they mean, code the explanation. 
+Stock phrases and slogans ("time heals all wounds", "what doesn't kill you makes you stronger") can be coded as societal beliefs. People can agree or disagree with such sayings. Code whether the passage endorses the saying, denies it, merely mentions it, or holds it only conditionally (for example, depending on the situation). If the speaker goes on to explain what they mean, code the explanation.
 
 Saying that suffering has no reason, purpose or lesson is a belief about suffering, not the absence of one.
 

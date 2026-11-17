@@ -70,6 +70,11 @@ BELIEF_AREAS = """\
 
 AREA_NAMES = [line.split(":")[0].strip("- ").strip() for line in BELIEF_AREAS.splitlines()]
 
+# How a passage stands toward a belief (tag_open_v1). Ratings are given only
+# where the passage takes the belief's side in some form.
+STANCES         = ["endorses", "denies", "mentions", "conditional", "depicts"]
+UNRATED_STANCES = {"denies": "denied", "mentions": "mentioned only"}
+
 # Step 5 ratings (rate_v1): 1-5, or blank when the belief takes no position
 RATING_DIMENSIONS = ["evaluation", "inevitability", "intertwinement"]
 
@@ -308,11 +313,20 @@ def clean_beliefs(raw):
         if isinstance(b, dict):
             belief = {k: str(b.get(k) or "").strip()
                       for k in ("label", "definition", "stance", "evidence")}
+            stance = belief["stance"].lower()
+            stance = "endorses" if stance == "asserts" else stance
+            belief["stance"] = stance if stance in STANCES else f"INVALID({stance[:20]})"
             belief["area"] = belief["area_note"] = belief["rating_reason"] = ""
             for dim in RATING_DIMENSIONS:
                 belief[dim] = ""
             beliefs.append(belief)
     return beliefs
+
+
+def stance_mark(belief, brackets="()"):
+    """' (denied)' / ' (mentioned only)' for beliefs the passage does not side with, else ''."""
+    word = UNRATED_STANCES.get(belief["stance"])
+    return f" {brackets[0]}{word}{brackets[1]}" if word else ""
 
 
 def belief_areas(beliefs):
@@ -337,7 +351,7 @@ def rate_beliefs(text: str, beliefs: list):
     if not prompt or not beliefs:
         return None, None
     listing = "\n".join(
-        f'{n}. {b["label"]}{" (denied)" if b["stance"] == "denies" else ""}: {b["definition"]}\n'
+        f'{n}. {b["label"]}{stance_mark(b)}: {b["definition"]}\n'
         f'   Evidence: "{b["evidence"]}"'
         for n, b in enumerate(beliefs, start=1))
     user = prompt.replace("<<BELIEFS>>", listing).replace("<<PASSAGE>>", text)
@@ -357,8 +371,8 @@ def rate_beliefs(text: str, beliefs: list):
         b["area"] = area if area in AREA_NAMES else f"INVALID({area[:30]})"
         b["area_note"] = str(r.get("area_note") or "").strip() if area == "other" else ""
         b["rating_reason"] = str(r.get("reason") or "").strip()
-        if b["stance"] == "denies":
-            continue                                  # denied beliefs get an area but no ratings
+        if b["stance"] in UNRATED_STANCES:
+            continue                                  # denied / mentioned beliefs get an area but no ratings
         for dim in RATING_DIMENSIONS:
             value = r.get(dim)
             b[dim] = value if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 5 else ""
@@ -433,9 +447,8 @@ def write_labeled_file(source_name: str, chunks: list, run_date: str):
                 if chunk.get("rejects"):
                     f.write(f"REJECTS:   {', '.join(str(t) for t in chunk['rejects'])}\n")
                 for b in chunk.get("beliefs", []):
-                    denied = " [denied]" if b["stance"] == "denies" else ""
-                    f.write(f"OPEN CODE: {b['label']}{denied} — {b['definition']}\n")
-                    detail = [f"area {b['area'] or 'not assigned'}"
+                    f.write(f"OPEN CODE: {b['label']} — {b['definition']}\n")
+                    detail = [f"stance {b['stance'] or 'none'}", f"area {b['area'] or 'not assigned'}"
                               + (f" ({b['area_note']})" if b["area_note"] else "")]
                     if any(b[dim] != "" for dim in RATING_DIMENSIONS):
                         detail += [f"{dim} {b[dim] if b[dim] != '' else 'NA'}" for dim in RATING_DIMENSIONS]
@@ -593,6 +606,8 @@ def run():
             for b in chunk["beliefs"]:
                 if b["area"].startswith("INVALID"):
                     run_log["errors"].append(f"{chunk['chunk_id']} area name")
+                if b["stance"].startswith("INVALID"):
+                    run_log["errors"].append(f"{chunk['chunk_id']} stance value")
             if usage:
                 run_log["tokens"]["input"]  += usage.input_tokens
                 run_log["tokens"]["output"] += usage.output_tokens
@@ -637,9 +652,7 @@ def run():
                 "tags":           ", ".join(str(t) for t in chunk["tags"]),
                 "tag_names":      tag_name_str,
                 "rejects":        ", ".join(str(t) for t in chunk["rejects"]),
-                "open_labels":    "; ".join(
-                    b["label"] + (" (denied)" if b["stance"] == "denies" else "")
-                    for b in chunk["beliefs"]),
+                "open_labels":    "; ".join(b["label"] + stance_mark(b) for b in chunk["beliefs"]),
                 "constructs":     ", ".join(chunk["constructs"]),
                 "confidence":     chunk["confidence"],
                 "new_candidate_label":      nc.get("label", ""),

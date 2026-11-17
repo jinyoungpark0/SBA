@@ -6,9 +6,9 @@ Step 3b: filter.
 
 Does this passage express or imply a general belief about suffering as a phenomenon, on any aspect of it?
 
-YES: some part of the passage states such a belief, or implies it plainly enough that you can complete "This passage claims that suffering ..." from the page alone, and the belief passes all five tests.
+YES: some part of the passage states such a belief, or implies it plainly enough that you can complete "This passage claims that suffering ..." from the page alone, and the belief passes all five tests. The passage need not endorse the belief: one that it denies, quotes as a common saying, holds only conditionally, or shows through the events of a story counts as well.
 
-MAYBE: a general belief is arguably implied but a careful coder could reasonably answer NO; or the belief is general but you doubt one of the other tests; or a narrative shows suffering in a way that fits a belief without the narrator or a character stating it; or the only statement of the belief is a stock phrase or slogan with nothing said to explain it. Every MAYBE is read by human coders, so use it for real borderline cases and not as a hedge on clear ones.
+MAYBE: a general belief is arguably implied but a careful coder could reasonably answer NO; or the belief is general but you doubt one of the other tests; or a narrative shows suffering in a way that fits a belief but leaves the link for the reader to supply. Every MAYBE is read by human coders, so use it for real borderline cases and not as a hedge on clear ones.
 
 NO: everything else, including passages that are about suffering but only narrate, describe, lament or give practical instructions.
 

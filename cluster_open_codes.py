@@ -116,7 +116,7 @@ def main():
             "cluster": c,
             "n_beliefs": len(g),
             "n_sources": g["source"].nunique(),
-            "n_denied": int((g["stance"] == "denies").sum()),
+            "stances": "; ".join(f"{k} ({v})" for k, v in g["stance"].value_counts().items()),
             "top_labels": "; ".join(g["label"].value_counts().index[:4]),
             "central_definition": central["definition"],
             "other_definitions": " | ".join(d for d in g["definition"].drop_duplicates()[:6]

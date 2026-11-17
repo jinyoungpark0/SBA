@@ -49,11 +49,11 @@ What counts as a belief is defined once, in the system prompt: the aspects it li
 The model returns **YES**, **MAYBE**, or **NO** with a one-line reason, plus, for YES/MAYBE passages, a verbatim evidence quote and a one-sentence core belief. Only YES and MAYBE passages proceed to Stage 4.
 
 ### Stage 4 — Open coding (Claude Sonnet)
-The tagger is given **no code list and no list of topics**, so that beliefs nobody anticipated can surface. For each belief a passage asserts or explicitly denies, it returns:
+The tagger is given **no code list and no list of topics**, so that beliefs nobody anticipated can surface. For each belief a passage expresses, it returns:
 
 - a two-to-four-word **label** and a one-sentence **definition** in everyday words
 - a verbatim **evidence** quote
-- a **stance** (asserts or denies)
+- a **stance**: `endorses`, `denies`, `mentions` (reported as something people say, no side taken), `conditional` (held only under a stated condition) or `depicts` (shown through the events of a story, not stated)
 
 These go to `results/open_codes.csv`, one row per belief. The classification is built from these open codes; it is not assumed in advance.
 
@@ -78,7 +78,7 @@ New output fields: the filter returns a short `reason` and a verbatim `evidence`
 
 The tag step has two modes, chosen by `TAG_PROMPT_VERSION` in `config.py`:
 
-- `tag_open_v1` (current setting): **open coding**. The tagger is given no code list. For each belief a passage asserts or explicitly denies it returns a label, a one-sentence definition, a verbatim evidence quote and a stance. These go to `results/open_codes.csv`, one row per belief, which is the input for building the classification. In the archive, `tags` is empty and `open_labels` lists the labels.
+- `tag_open_v1` (current setting): **open coding**. The tagger is given no code list. For each belief a passage expresses it returns a label, a one-sentence definition, a verbatim evidence quote and a stance. These go to `results/open_codes.csv`, one row per belief, which is the input for building the classification. In the archive, `tags` is empty and `open_labels` lists the labels.
 - `tag_v3`: **deductive coding** against the working classification in `pipeline.py`. Use it once a classification has been built from the open codes.
 
 **Step 5, areas and ratings (`rate_v1`).** After open coding, each belief is assigned one area, so `open_codes.csv` can be tabulated to check coverage. The grid (`BELIEF_AREAS` in `pipeline.py`) follows the qualitative interview guide, so the text and interview streams share one grid:
@@ -95,7 +95,7 @@ Each asserted belief is also rated 1-5 on three dimensions, with blank meaning t
 | `rating_inevitability` | avoidable or exceptional | an inevitable part of every life |
 | `rating_intertwinement` | separate from and opposed to what is good in life | bound up with what people care about most |
 
-One call per passage (`RATE_MODEL`); results are columns in `open_codes.csv`, with empty `human_*` columns for blind validation. Denied beliefs get an area but no ratings. Set `RATE_PROMPT_VERSION = None` in `config.py` to skip the step. Before analysis: validate the ratings against human coders, and remove duplicate beliefs that come from the 200-word overlap between chunks.
+One call per passage (`RATE_MODEL`); results are columns in `open_codes.csv`, with empty `human_*` columns for blind validation. Beliefs the passage denies or only mentions get an area but no ratings. Set `RATE_PROMPT_VERSION = None` in `config.py` to skip the step. Before analysis: validate the ratings against human coders, and remove duplicate beliefs that come from the 200-word overlap between chunks.
 
 The original prompts (`screen_v1`, `filter_v2`, `tag_v2`) still run unchanged: a prompt file without `<<PASSAGE>>` is sent as the system message with the passage as the user message, as before. Set the versions in `config.py`.
 
