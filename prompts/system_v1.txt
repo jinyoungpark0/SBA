@@ -10,16 +10,13 @@ This is the project's working definition, and it is deliberately broad. Authors 
 
 WHAT COUNTS AS A SUFFERING BELIEF
 
-A suffering belief is a general claim about suffering as a phenomenon.
+A suffering belief is a general claim about suffering as a phenomenon. It must pass five tests.
 
-Claim. It asserts something a person could agree or disagree with: what suffering is, why it happens, what it means, what it is worth, or how it should be met. It does not merely describe how suffering feels. "Suffering is meaningless" passes; "Grief feels like drowning" fails.
-
-A claim is a suffering belief only if it also passes four tests.
-
-1. Generality. It is about suffering in general, not one episode. "Suffering builds character" passes; "My surgery was painful" fails.
-2. Individual difference. People really do differ on it. It fails if it is true by definition or accepted by nearly everyone. "People bring their suffering on themselves" passes; "Suffering is unpleasant" fails, because under the definition above it could not be otherwise.
-3. Plain language. It can be said in everyday words. "Suffering brings people closer" passes; "Suffering is privation of the good qua being" fails.
-4. Broad relevance. It bears on how people meet suffering generally. "Avoiding all pain makes life smaller" passes; "Chemotherapy causes nausea" fails.
+1. Claim. It asserts something a person could agree or disagree with: what suffering is, why it happens, what it means, what it is worth, or how it should be met. It does not merely describe how suffering feels. "Suffering is meaningless" passes; "Grief feels like drowning" fails.
+2. Generality. It is about suffering in general, not one episode. "Suffering builds character" passes; "My surgery was painful" fails.
+3. Individual difference. People really do differ on it. It fails if it is true by definition or accepted by nearly everyone. "People bring their suffering on themselves" passes; "Suffering is unpleasant" fails, because under the definition above it could not be otherwise.
+4. Plain language. It can be said in everyday words. "Suffering brings people closer" passes; "Suffering is privation of the good qua being" fails.
+5. Broad relevance. It bears on how people meet suffering generally. "Avoiding all pain makes life smaller" passes; "Chemotherapy causes nausea" fails.
 
 Apply the tests to each claim separately. A statement that is true by definition often introduces a real claim ("suffering hurts, but ..."); judge what follows the "but".
 

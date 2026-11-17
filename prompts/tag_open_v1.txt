@@ -15,7 +15,7 @@ Name each suffering belief this passage asserts or explicitly denies. There is n
 Respond with one JSON object, fields in this order:
 {"beliefs": [{"evidence": "...", "definition": "...", "label": "...", "stance": "asserts"|"denies", "primary_construct": "name", "other_construct": "name" or null}], "confidence": "HIGH"|"MEDIUM"|"LOW"}
 
-beliefs: one entry for each distinct belief that passes the four tests. Two claims are distinct beliefs when the same person could agree with one and disagree with the other. Otherwise they are one belief and are listed once. A long passage may hold several. A passage may also hold none, because the filter step can be wrong; in that case return an empty list.
+beliefs: one entry for each distinct belief that passes the five tests. Two claims are distinct beliefs when the same person could agree with one and disagree with the other. Otherwise they are one belief and are listed once. A long passage may hold several. A passage may also hold none, because the filter step can be wrong; in that case return an empty list.
 
 evidence: the sentence or clause that carries this belief, copied exactly from the passage (fillers, speaker labels and all), at most 40 words.
 

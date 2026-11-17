@@ -70,7 +70,7 @@ Each asserted belief is rated 1–5 on evaluation, inevitability and intertwinem
 
 From `system_v1` / `screen_v2` / `filter_v3` / `tag_v3` on, every call has two parts:
 
-- **System prompt** (`prompts/system_v1.txt`), shared by all three steps: the coder's role, the four tests for a suffering belief (protocol §8, §14), the recurring judgment calls, the rule to code from the page and not from prior knowledge of the work, and JSON-only output.
+- **System prompt** (`prompts/system_v1.txt`), shared by all three steps: the coder's role, the five tests for a suffering belief (the four in protocol §8 and §14, plus a Claim test added here), the recurring judgment calls, the rule to code from the page and not from prior knowledge of the work, and JSON-only output.
 - **Task prompt** (one per step), sent as the user message with the passage filled in at `<<PASSAGE>>`. The tag prompt also takes `<<CLASSIFICATION>>`, `<<CONSTRUCTS>>` and `<<CORE_BELIEF>>`.
 
 New output fields: the filter returns a short `reason` and a verbatim `evidence` quote (checked against the chunk and recorded as `evidence_verbatim`); the tagger returns `rejects`, the codes a passage explicitly denies.
