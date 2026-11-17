@@ -61,8 +61,9 @@ ARCHIVE_FIELDS = [
     "chunk_id", "text_id", "source",
     "keyword", "keyword_tier", "seed_constructs",
     "screen", "filter_trigger",
-    "filter_decision", "core_belief",
-    "tags", "tag_names", "constructs", "confidence",
+    "filter_decision", "filter_reason", "core_belief",
+    "evidence", "evidence_verbatim",
+    "tags", "tag_names", "rejects", "constructs", "confidence",
     "new_candidate_label", "new_candidate_definition",
     "text_excerpt",
     # Human validation (empty — for RAs)
@@ -70,7 +71,7 @@ ARCHIVE_FIELDS = [
     "coder_notes", "coder_id", "date_coded", "resolved_tag",
     # Provenance
     "model_screen", "model_filter", "model_tag",
-    "prompt_screen", "prompt_filter", "prompt_tag",
+    "prompt_system", "prompt_screen", "prompt_filter", "prompt_tag",
     "run_date",
 ]
 
@@ -126,9 +127,48 @@ def parse_json(text: str):
 # Pipeline steps
 # ---------------------------------------------------------------------------
 
+_system_prompt = None
 _screen_prompt = None
 _filter_prompt = None
 _tag_prompt    = None
+
+
+def get_system_prompt():
+    """Shared system prompt: construct definition and coding rules for every step."""
+    global _system_prompt
+    if _system_prompt is None:
+        _system_prompt = load_prompt(config.SYSTEM_PROMPT_VERSION)
+    return _system_prompt
+
+
+def build_call(prompt: str, passage: str, legacy_user: str, core_belief: str = ""):
+    """
+    Returns (system, user) for one API call.
+
+    Task prompts (screen_v2, filter_v3, tag_v3 and later) contain <<PASSAGE>>:
+    the shared system prompt is the system message and the filled task prompt
+    is the user message.
+
+    Earlier prompts (screen_v1, filter_v2, tag_v2) have no <<PASSAGE>>: the
+    prompt file is the system message and `legacy_user` is the user message,
+    exactly as in the original pipeline, so old runs stay reproducible.
+    """
+    if "<<PASSAGE>>" not in prompt:
+        return prompt, legacy_user
+    user = prompt.replace("<<CORE_BELIEF>>", core_belief).replace("<<PASSAGE>>", passage)
+    return get_system_prompt(), user
+
+
+def uses_system_prompt() -> bool:
+    return any("<<PASSAGE>>" in p for p in
+               (get_screen_prompt(), get_filter_prompt(), get_tag_prompt()))
+
+
+def is_verbatim(evidence: str, text: str) -> str:
+    """Quote-fidelity check on the model's evidence quote: 'yes'/'no', '' if none."""
+    if not evidence:
+        return ""
+    return "yes" if " ".join(evidence.split()) in " ".join(text.split()) else "no"
 
 
 def get_screen_prompt():
@@ -156,35 +196,42 @@ def get_tag_prompt():
 
 
 def screen(text: str):
-    result, usage = call_claude(config.SCREEN_MODEL, get_screen_prompt(), text)
+    system, user = build_call(get_screen_prompt(), text, legacy_user=text)
+    result, usage = call_claude(config.SCREEN_MODEL, system, user)
     parsed = parse_json(result)
     decision = parsed.get("screen", "ERROR").upper() if parsed else "ERROR"
     return decision, usage
 
 
 def filter_passage(text: str):
-    result, usage = call_claude(config.FILTER_MODEL, get_filter_prompt(), text)
+    system, user = build_call(get_filter_prompt(), text, legacy_user=text)
+    result, usage = call_claude(config.FILTER_MODEL, system, user, max_tokens=400)
     parsed = parse_json(result)
+    extra = {"reason": "", "evidence": ""}          # filter_v3 fields; empty for filter_v2
     if parsed:
         decision    = parsed.get("decision", "ERROR").upper()
         core_belief = parsed.get("core_belief") or ""
+        extra = {"reason":   parsed.get("reason") or "",
+                 "evidence": parsed.get("evidence") or ""}
     else:
         decision, core_belief = "ERROR", ""
-    return decision, core_belief, usage
+    return decision, core_belief, extra, usage
 
 
 def tag_passage(text: str, core_belief: str):
-    user   = f"Core belief: {core_belief}\n\nPassage:\n{text}"
-    result, usage = call_claude(config.TAG_MODEL, get_tag_prompt(), user, max_tokens=400)
+    legacy = f"Core belief: {core_belief}\n\nPassage:\n{text}"
+    system, user = build_call(get_tag_prompt(), text, legacy_user=legacy, core_belief=core_belief)
+    result, usage = call_claude(config.TAG_MODEL, system, user, max_tokens=400)
     parsed = parse_json(result)
     if parsed:
         return {
             "tags":          [int(t) for t in parsed.get("tags", [])],
+            "rejects":       [int(t) for t in parsed.get("rejects") or []],   # tag_v3
             "confidence":    parsed.get("confidence", ""),
             "constructs":    parsed.get("constructs", []),
             "new_candidate": parsed.get("new_candidate"),
         }, usage
-    return {"tags": [], "confidence": "ERROR", "constructs": [], "new_candidate": None}, usage
+    return {"tags": [], "rejects": [], "confidence": "ERROR", "constructs": [], "new_candidate": None}, usage
 
 
 # ---------------------------------------------------------------------------
@@ -220,14 +267,22 @@ def write_labeled_file(source_name: str, chunks: list, run_date: str):
             fd = chunk.get("filter_decision", "N/A")
             if fd not in ("N/A", None):
                 f.write(f"FILTER:    {fd}\n")
+                if chunk.get("filter_reason"):
+                    f.write(f"REASON:    {chunk['filter_reason']}\n")
                 if chunk.get("core_belief"):
                     f.write(f"BELIEF:    {chunk['core_belief']}\n")
+                if chunk.get("evidence"):
+                    f.write(f"EVIDENCE:  {' '.join(chunk['evidence'].split())}\n")
+                    if chunk.get("evidence_verbatim") == "no":
+                        f.write("QUOTE CHECK: evidence not found verbatim in chunk\n")
 
             if fd in ("YES", "MAYBE"):
                 tag_str = ", ".join(
                     f"{t} ({TAG_NAMES.get(t, '?')})" for t in chunk.get("tags", [])
                 )
                 f.write(f"TAGS:      {tag_str or 'none'}\n")
+                if chunk.get("rejects"):
+                    f.write(f"REJECTS:   {', '.join(str(t) for t in chunk['rejects'])}\n")
                 f.write(f"CONSTRUCTS:{' ' + ', '.join(chunk.get('constructs', [])) or ' none'}\n")
                 f.write(f"CONFIDENCE:{' ' + chunk.get('confidence', '')}\n")
                 nc = chunk.get("new_candidate")
@@ -257,11 +312,15 @@ def run():
     else:
         filepaths = sorted(Path(config.TEXTS_DIR).glob("*.txt"))
 
+    # "" when all three step prompts are the pre-v3 kind that carry their own system text
+    system_version = config.SYSTEM_PROMPT_VERSION if uses_system_prompt() else ""
+
     run_log = {
         "run_date":      run_date,
         "screen_model":  config.SCREEN_MODEL,
         "filter_model":  config.FILTER_MODEL,
         "tag_model":     config.TAG_MODEL,
+        "system_prompt": system_version,
         "screen_prompt": config.SCREEN_PROMPT_VERSION,
         "filter_prompt": config.FILTER_PROMPT_VERSION,
         "tag_prompt":    config.TAG_PROMPT_VERSION,
@@ -318,9 +377,12 @@ def run():
         print(f"  Filtering {len(to_filter)} candidates...")
 
         for chunk in to_filter:
-            decision, core_belief, usage = filter_passage(chunk["text"])
+            decision, core_belief, extra, usage = filter_passage(chunk["text"])
             chunk["filter_decision"] = decision
             chunk["core_belief"]     = core_belief
+            chunk["filter_reason"]   = extra["reason"]
+            chunk["evidence"]        = extra["evidence"]
+            chunk["evidence_verbatim"] = is_verbatim(extra["evidence"], chunk["text"])
             if usage:
                 run_log["tokens"]["input"]  += usage.input_tokens
                 run_log["tokens"]["output"] += usage.output_tokens
@@ -332,6 +394,9 @@ def run():
             if "filter_decision" not in chunk:
                 chunk["filter_decision"] = "N/A"
                 chunk["core_belief"]     = ""
+                chunk["filter_reason"]   = ""
+                chunk["evidence"]        = ""
+                chunk["evidence_verbatim"] = ""
 
         # Step 4 — tag YES/MAYBE passages
         to_tag = [c for c in chunks if c.get("filter_decision") in ("YES", "MAYBE")]
@@ -340,6 +405,7 @@ def run():
         for chunk in to_tag:
             tag_result, usage = tag_passage(chunk["text"], chunk.get("core_belief", ""))
             chunk["tags"]          = tag_result["tags"]
+            chunk["rejects"]       = tag_result["rejects"]
             chunk["confidence"]    = tag_result["confidence"]
             chunk["constructs"]    = tag_result["constructs"]
             chunk["new_candidate"] = tag_result["new_candidate"]
@@ -353,6 +419,7 @@ def run():
         for chunk in chunks:
             if "tags" not in chunk:
                 chunk["tags"]          = []
+                chunk["rejects"]       = []
                 chunk["confidence"]    = "N/A"
                 chunk["constructs"]    = []
                 chunk["new_candidate"] = None
@@ -377,9 +444,13 @@ def run():
                 "screen":     chunk["screen"],
                 "filter_trigger": "keyword" if chunk["is_keyword_hit"] else "contextual",
                 "filter_decision": chunk["filter_decision"],
+                "filter_reason":  chunk["filter_reason"],
                 "core_belief":    chunk["core_belief"],
+                "evidence":       chunk["evidence"],
+                "evidence_verbatim": chunk["evidence_verbatim"],
                 "tags":           ", ".join(str(t) for t in chunk["tags"]),
                 "tag_names":      tag_name_str,
+                "rejects":        ", ".join(str(t) for t in chunk["rejects"]),
                 "constructs":     ", ".join(chunk["constructs"]),
                 "confidence":     chunk["confidence"],
                 "new_candidate_label":      nc.get("label", ""),
@@ -392,6 +463,7 @@ def run():
                 "model_screen":  config.SCREEN_MODEL,
                 "model_filter":  config.FILTER_MODEL,
                 "model_tag":     config.TAG_MODEL,
+                "prompt_system": system_version,
                 "prompt_screen": config.SCREEN_PROMPT_VERSION,
                 "prompt_filter": config.FILTER_PROMPT_VERSION,
                 "prompt_tag":    config.TAG_PROMPT_VERSION,

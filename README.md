@@ -63,6 +63,21 @@ The model also identifies which of Christine's **nine construct dimensions** the
 
 ---
 
+## Prompt layout (v3)
+
+From `system_v1` / `screen_v2` / `filter_v3` / `tag_v3` on, every call has two parts:
+
+- **System prompt** (`prompts/system_v1.txt`), shared by all three steps: the coder's role, the four tests for a suffering belief (protocol §8, §14), the recurring judgment calls, the rule to code from the page and not from prior knowledge of the work, and JSON-only output.
+- **Task prompt** (one per step), sent as the user message with the passage filled in at `<<PASSAGE>>`. The tag prompt also takes `<<CLASSIFICATION>>`, `<<CONSTRUCTS>>` and `<<CORE_BELIEF>>`.
+
+New output fields: the filter returns a short `reason` and a verbatim `evidence` quote (checked against the chunk and recorded as `evidence_verbatim`); the tagger returns `rejects`, the codes a passage explicitly denies.
+
+The original prompts (`screen_v1`, `filter_v2`, `tag_v2`) still run unchanged: a prompt file without `<<PASSAGE>>` is sent as the system message with the passage as the user message, as before. Set the versions in `config.py`.
+
+The v3 prompts were drafted after reading pilot output and have not yet been validated against human coding. Report agreement on texts the prompts were not developed on.
+
+---
+
 ## Exploring results — the Viewer
 
 The annotation viewer (`viewer.html`, in the root of this folder) is a self-contained browser tool for exploring any archive CSV. No server needed — open it directly.
@@ -125,7 +140,10 @@ One row per archived passage (filter = YES or MAYBE). The main deliverable — t
 | `keyword`, `filter_trigger` | what flagged it (`keyword` or `contextual`) |
 | `seed_constructs` | Christine's construct dimensions touched by the chunk's vocabulary |
 | `core_belief` | one-sentence belief summary from the filter step |
+| `filter_reason` | the filter's one-line reason for its decision (v3 prompts) |
+| `evidence`, `evidence_verbatim` | the sentence the filter quotes as carrying the belief, and whether it occurs verbatim in the chunk (v3 prompts) |
 | `tags`, `tag_names` | working classification codes |
+| `rejects` | codes the passage explicitly denies (v3 prompts) |
 | `constructs` | construct dimensions assigned by the tagger |
 | `confidence` | HIGH / MEDIUM / LOW |
 | `new_candidate_label/definition` | proposed new code, if any |
@@ -166,9 +184,13 @@ Annotation Pipeline/
 │   ├── keywords.py               ← keyword scan + seed word annotation
 │   ├── config.py                 ← settings: texts, models, chunk size, paths
 │   ├── prompts/
-│   │   ├── screen_v1.txt         ← screening prompt
-│   │   ├── filter_v2.txt         ← filter prompt
-│   │   └── tag_v2.txt            ← tagging prompt
+│   │   ├── system_v1.txt         ← shared system prompt (v3 layout)
+│   │   ├── screen_v2.txt         ← screening task prompt
+│   │   ├── filter_v3.txt         ← filter task prompt
+│   │   ├── tag_v3.txt            ← tagging task prompt
+│   │   ├── screen_v1.txt         ← original screening prompt
+│   │   ├── filter_v2.txt         ← original filter prompt
+│   │   └── tag_v2.txt            ← original tagging prompt
 │   └── results/
 │       ├── pilot_archive.csv
 │       ├── run_log.json
