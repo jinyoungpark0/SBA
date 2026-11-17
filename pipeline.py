@@ -19,12 +19,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import config
 from preprocess import load_and_preprocess
-from keywords import keyword_scan
+from keywords import keyword_scan, KEYWORDS_VERSION, SEED_TOPICS_LOADED
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
+# NOT sent to the model in the open-coding pass (tag_open_v1), which has no code
+# list. It is filled in only where a tag prompt contains <<CLASSIFICATION>>:
+# tag_v2 (the original pilot) and tag_v3 (deductive coding). Replace it with the
+# classification built from the open codes before running tag_v3.
 WORKING_CLASSIFICATION = """\
 1. Punishment/consequence  — Suffering results from wrongdoing or violated order
 2. Teacher/growth          — Suffering instructs, refines, builds character
@@ -35,6 +39,8 @@ WORKING_CLASSIFICATION = """\
 7. Mystery/unknowable      — Suffering's meaning is unknowable to humans
 0. None of the above       — propose a new candidate belief"""
 
+# Used in every tag prompt. In open coding each belief gets one primary dimension
+# and at most one secondary, as a coverage check.
 CONSTRUCT_DIMENSIONS = """\
 - prevalence      : how common or universal suffering is
 - controllability : whether suffering can be avoided or controlled
@@ -45,6 +51,12 @@ CONSTRUCT_DIMENSIONS = """\
 - fairness        : whether suffering is deserved, just, or equitable
 - responsibility  : who bears responsibility for suffering
 - helpful_responses: how one should respond to suffering"""
+
+CONSTRUCT_NAMES = [line.split(":")[0].strip("- ").strip()
+                   for line in CONSTRUCT_DIMENSIONS.splitlines()]
+
+# Step 5 ratings (rate_v1): 1-5, or blank when the belief takes no position
+RATING_DIMENSIONS = ["evaluation", "inevitability", "intertwinement"]
 
 TAG_NAMES = {
     0: "None of the above",
@@ -63,7 +75,7 @@ ARCHIVE_FIELDS = [
     "screen", "filter_trigger",
     "filter_decision", "filter_reason", "core_belief",
     "evidence", "evidence_verbatim",
-    "tags", "tag_names", "rejects", "constructs", "confidence",
+    "tags", "tag_names", "rejects", "open_labels", "constructs", "confidence",
     "new_candidate_label", "new_candidate_definition",
     "text_excerpt",
     # Human validation (empty — for RAs)
@@ -73,6 +85,22 @@ ARCHIVE_FIELDS = [
     "model_screen", "model_filter", "model_tag",
     "prompt_system", "prompt_screen", "prompt_filter", "prompt_tag",
     "run_date",
+]
+
+# One row per belief from the open-coding pass (tag_open_v1): the input to
+# classification building. Written to results/open_codes.csv.
+OPEN_CODE_FIELDS = [
+    "chunk_id", "text_id", "source", "belief_n",
+    "label", "definition", "stance", "evidence", "evidence_verbatim",
+    "primary_construct", "other_construct",
+    "rating_evaluation", "rating_inevitability", "rating_intertwinement", "rating_reason",
+    "confidence", "filter_decision", "core_belief",
+    # Consolidation and rating validation (empty — for the research team)
+    "consolidated_code",
+    "human_evaluation", "human_inevitability", "human_intertwinement",
+    "coder_notes",
+    # Provenance
+    "model_tag", "model_rate", "prompt_system", "prompt_tag", "prompt_rate", "run_date",
 ]
 
 # ---------------------------------------------------------------------------
@@ -88,13 +116,38 @@ def load_prompt(name: str) -> str:
         return f.read().strip()
 
 
+# How temperature=0 is sent. Some SDK versions and models no longer take the
+# `temperature` argument; the first refusal moves to the next mode and the mode
+# in force at the end of the run is written to run_log.json.
+TEMPERATURE_MODES = ["temperature=0", "temperature=0 via extra_body",
+                     "model default (temperature=0 refused)"]
+_temperature_mode = 0
+
+
+def _create(**kw):
+    global _temperature_mode
+    while True:
+        try:
+            if _temperature_mode == 0:
+                return client.messages.create(temperature=0, **kw)
+            if _temperature_mode == 1:
+                return client.messages.create(extra_body={"temperature": 0}, **kw)
+            return client.messages.create(**kw)
+        except anthropic.RateLimitError:
+            raise
+        except Exception as e:
+            if "temperature" not in str(e).lower() or _temperature_mode == len(TEMPERATURE_MODES) - 1:
+                raise
+            _temperature_mode += 1
+            print(f"    temperature refused ({str(e)[:80]}) — now using: {TEMPERATURE_MODES[_temperature_mode]}")
+
+
 def call_claude(model: str, system: str, user: str, max_tokens=256, retries=3):
     for attempt in range(retries):
         try:
-            msg = client.messages.create(
+            msg = _create(
                 model=model,
                 max_tokens=max_tokens,
-                temperature=0,
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
@@ -131,6 +184,7 @@ _system_prompt = None
 _screen_prompt = None
 _filter_prompt = None
 _tag_prompt    = None
+_rate_prompt   = None
 
 
 def get_system_prompt():
@@ -195,6 +249,17 @@ def get_tag_prompt():
     return _tag_prompt
 
 
+def get_rate_prompt():
+    """Step 5 prompt, or None when rating is switched off in config.py."""
+    global _rate_prompt
+    version = getattr(config, "RATE_PROMPT_VERSION", None)
+    if not version:
+        return None
+    if _rate_prompt is None:
+        _rate_prompt = load_prompt(version)
+    return _rate_prompt
+
+
 def screen(text: str):
     system, user = build_call(get_screen_prompt(), text, legacy_user=text)
     result, usage = call_claude(config.SCREEN_MODEL, system, user)
@@ -218,20 +283,91 @@ def filter_passage(text: str):
     return decision, core_belief, extra, usage
 
 
+def clean_beliefs(raw):
+    """
+    Open-coding output (tag_open_v1): one dict per belief with label, definition,
+    stance, evidence and its construct dimensions. A construct name that is not
+    in CONSTRUCT_DIMENSIONS is kept visible as INVALID(<name>), not dropped.
+    """
+    def construct(value):
+        name = str(value or "").strip()
+        if not name or name.lower() in ("null", "none"):
+            return ""
+        return name if name in CONSTRUCT_NAMES else f"INVALID({name[:30]})"
+
+    beliefs = []
+    for b in raw if isinstance(raw, list) else []:
+        if isinstance(b, dict):
+            belief = {k: str(b.get(k) or "").strip()
+                      for k in ("label", "definition", "stance", "evidence")}
+            belief["primary_construct"] = construct(b.get("primary_construct"))
+            belief["other_construct"]   = construct(b.get("other_construct"))
+            for dim in RATING_DIMENSIONS:          # filled in by step 5
+                belief[dim] = ""
+            belief["rating_reason"] = ""
+            beliefs.append(belief)
+    return beliefs
+
+
+def belief_constructs(beliefs):
+    """Passage-level construct list for the archive, from the beliefs' own dimensions."""
+    names = []
+    for b in beliefs:
+        for name in (b["primary_construct"], b["other_construct"]):
+            if name and not name.startswith("INVALID") and name not in names:
+                names.append(name)
+    return names
+
+
+def rate_beliefs(text: str, beliefs: list):
+    """
+    Step 5: rate each asserted belief on RATING_DIMENSIONS (1-5, "" = no position).
+    One call per passage. Fills the belief dicts in place.
+    Returns (ok, usage); ok is None when there was nothing to rate.
+    """
+    prompt   = get_rate_prompt()
+    asserted = [b for b in beliefs if b["stance"] != "denies"]
+    if not prompt or not asserted:
+        return None, None
+    listing = "\n".join(
+        f'{n}. {b["label"]}: {b["definition"]}\n   Evidence: "{b["evidence"]}"'
+        for n, b in enumerate(asserted, start=1))
+    user = prompt.replace("<<BELIEFS>>", listing).replace("<<PASSAGE>>", text)
+    result, usage = call_claude(config.RATE_MODEL, get_system_prompt(), user, max_tokens=800)
+    parsed  = parse_json(result)
+    ratings = parsed.get("ratings") if parsed else None
+    if not isinstance(ratings, list):
+        return False, usage
+    by_number = {r.get("belief"): r for r in ratings if isinstance(r, dict)}
+    ok = True
+    for n, b in enumerate(asserted, start=1):
+        r = by_number.get(n)
+        if r is None:
+            ok = False
+            continue
+        for dim in RATING_DIMENSIONS:
+            value = r.get(dim)
+            b[dim] = value if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 5 else ""
+        b["rating_reason"] = str(r.get("reason") or "").strip()
+    return ok, usage
+
+
 def tag_passage(text: str, core_belief: str):
     legacy = f"Core belief: {core_belief}\n\nPassage:\n{text}"
     system, user = build_call(get_tag_prompt(), text, legacy_user=legacy, core_belief=core_belief)
-    result, usage = call_claude(config.TAG_MODEL, system, user, max_tokens=400)
+    result, usage = call_claude(config.TAG_MODEL, system, user, max_tokens=800)
     parsed = parse_json(result)
     if parsed:
         return {
             "tags":          [int(t) for t in parsed.get("tags", [])],
             "rejects":       [int(t) for t in parsed.get("rejects") or []],   # tag_v3
+            "beliefs":       clean_beliefs(parsed.get("beliefs")),            # tag_open_v1
             "confidence":    parsed.get("confidence", ""),
-            "constructs":    parsed.get("constructs", []),
+            "constructs":    parsed.get("constructs") or belief_constructs(clean_beliefs(parsed.get("beliefs"))),
             "new_candidate": parsed.get("new_candidate"),
         }, usage
-    return {"tags": [], "rejects": [], "confidence": "ERROR", "constructs": [], "new_candidate": None}, usage
+    return {"tags": [], "rejects": [], "beliefs": [], "confidence": "ERROR",
+            "constructs": [], "new_candidate": None}, usage
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +419,14 @@ def write_labeled_file(source_name: str, chunks: list, run_date: str):
                 f.write(f"TAGS:      {tag_str or 'none'}\n")
                 if chunk.get("rejects"):
                     f.write(f"REJECTS:   {', '.join(str(t) for t in chunk['rejects'])}\n")
+                for b in chunk.get("beliefs", []):
+                    denied = " [denied]" if b["stance"] == "denies" else ""
+                    f.write(f"OPEN CODE: {b['label']}{denied} — {b['definition']}\n")
+                    detail = [f"construct {b['primary_construct'] or 'none'}"
+                              + (f" + {b['other_construct']}" if b["other_construct"] else "")]
+                    if any(b[dim] != "" for dim in RATING_DIMENSIONS):
+                        detail += [f"{dim} {b[dim] if b[dim] != '' else 'NA'}" for dim in RATING_DIMENSIONS]
+                    f.write(f"CODE DETAIL: {', '.join(detail)}\n")
                 f.write(f"CONSTRUCTS:{' ' + ', '.join(chunk.get('constructs', [])) or ' none'}\n")
                 f.write(f"CONFIDENCE:{' ' + chunk.get('confidence', '')}\n")
                 nc = chunk.get("new_candidate")
@@ -312,6 +456,9 @@ def run():
     else:
         filepaths = sorted(Path(config.TEXTS_DIR).glob("*.txt"))
 
+    if not SEED_TOPICS_LOADED:
+        print("[note] seed_topics.py not found — seed_constructs will be blank")
+
     # "" when all three step prompts are the pre-v3 kind that carry their own system text
     system_version = config.SYSTEM_PROMPT_VERSION if uses_system_prompt() else ""
 
@@ -324,6 +471,10 @@ def run():
         "screen_prompt": config.SCREEN_PROMPT_VERSION,
         "filter_prompt": config.FILTER_PROMPT_VERSION,
         "tag_prompt":    config.TAG_PROMPT_VERSION,
+        "rate_model":    getattr(config, "RATE_MODEL", ""),
+        "rate_prompt":   getattr(config, "RATE_PROMPT_VERSION", None) or "",
+        "keywords":      KEYWORDS_VERSION,
+        "seed_topics":   SEED_TOPICS_LOADED,
         "texts":         [],
         "totals": {"chunks": 0, "keyword_hits": 0, "contextual": 0, "archived": 0},
         "tokens": {"input": 0, "output": 0},
@@ -331,6 +482,7 @@ def run():
     }
 
     archive_rows = []
+    open_rows    = []      # one row per belief, open-coding pass only
 
     for filepath in filepaths:
         if not os.path.exists(filepath):
@@ -406,6 +558,7 @@ def run():
             tag_result, usage = tag_passage(chunk["text"], chunk.get("core_belief", ""))
             chunk["tags"]          = tag_result["tags"]
             chunk["rejects"]       = tag_result["rejects"]
+            chunk["beliefs"]       = tag_result["beliefs"]
             chunk["confidence"]    = tag_result["confidence"]
             chunk["constructs"]    = tag_result["constructs"]
             chunk["new_candidate"] = tag_result["new_candidate"]
@@ -416,10 +569,28 @@ def run():
                 run_log["errors"].append(f"{chunk['chunk_id']} tag")
             time.sleep(0.05)
 
+        # Step 5 — rate the open-coded beliefs (open-coding runs only)
+        to_rate = [c for c in to_tag if c["beliefs"]]
+        if to_rate and get_rate_prompt():
+            print(f"  Rating beliefs in {len(to_rate)} passages...")
+        for chunk in to_rate:
+            for b in chunk["beliefs"]:
+                if b["primary_construct"].startswith("INVALID") or b["other_construct"].startswith("INVALID"):
+                    run_log["errors"].append(f"{chunk['chunk_id']} construct name")
+            ok, usage = rate_beliefs(chunk["text"], chunk["beliefs"])
+            if usage:
+                run_log["tokens"]["input"]  += usage.input_tokens
+                run_log["tokens"]["output"] += usage.output_tokens
+            if ok is False:
+                run_log["errors"].append(f"{chunk['chunk_id']} rate")
+            if ok is not None:
+                time.sleep(0.05)
+
         for chunk in chunks:
             if "tags" not in chunk:
                 chunk["tags"]          = []
                 chunk["rejects"]       = []
+                chunk["beliefs"]       = []
                 chunk["confidence"]    = "N/A"
                 chunk["constructs"]    = []
                 chunk["new_candidate"] = None
@@ -451,6 +622,9 @@ def run():
                 "tags":           ", ".join(str(t) for t in chunk["tags"]),
                 "tag_names":      tag_name_str,
                 "rejects":        ", ".join(str(t) for t in chunk["rejects"]),
+                "open_labels":    "; ".join(
+                    b["label"] + (" (denied)" if b["stance"] == "denies" else "")
+                    for b in chunk["beliefs"]),
                 "constructs":     ", ".join(chunk["constructs"]),
                 "confidence":     chunk["confidence"],
                 "new_candidate_label":      nc.get("label", ""),
@@ -469,6 +643,37 @@ def run():
                 "prompt_tag":    config.TAG_PROMPT_VERSION,
                 "run_date":      run_date,
             })
+
+            for n, b in enumerate(chunk["beliefs"], start=1):
+                open_rows.append({
+                    "chunk_id":   chunk["chunk_id"],
+                    "text_id":    chunk["text_id"],
+                    "source":     source_name,
+                    "belief_n":   n,
+                    "label":      b["label"],
+                    "definition": b["definition"],
+                    "stance":     b["stance"],
+                    "evidence":   b["evidence"],
+                    "evidence_verbatim": is_verbatim(b["evidence"], chunk["text"]),
+                    "primary_construct": b["primary_construct"],
+                    "other_construct":   b["other_construct"],
+                    "rating_evaluation":     b["evaluation"],
+                    "rating_inevitability":  b["inevitability"],
+                    "rating_intertwinement": b["intertwinement"],
+                    "rating_reason":         b["rating_reason"],
+                    "confidence": chunk["confidence"],
+                    "filter_decision": chunk["filter_decision"],
+                    "core_belief": chunk["core_belief"],
+                    "consolidated_code": "",
+                    "human_evaluation": "", "human_inevitability": "", "human_intertwinement": "",
+                    "coder_notes": "",
+                    "model_tag":     config.TAG_MODEL,
+                    "model_rate":    getattr(config, "RATE_MODEL", "") if get_rate_prompt() else "",
+                    "prompt_system": system_version,
+                    "prompt_tag":    config.TAG_PROMPT_VERSION,
+                    "prompt_rate":   (getattr(config, "RATE_PROMPT_VERSION", None) or ""),
+                    "run_date":      run_date,
+                })
 
         # Labeled text file
         labeled_path = write_labeled_file(source_name, chunks, run_date)
@@ -495,6 +700,16 @@ def run():
             writer.writeheader()
             writer.writerows(archive_rows)
 
+    # Write open codes (one row per belief), if the tag step was the open-coding prompt
+    open_path = os.path.join(config.RESULTS_DIR, "open_codes.csv")
+    if open_rows:
+        with open(open_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=OPEN_CODE_FIELDS)
+            writer.writeheader()
+            writer.writerows(open_rows)
+    run_log["totals"]["open_codes"] = len(open_rows)
+    run_log["temperature"] = TEMPERATURE_MODES[_temperature_mode]
+
     # Write run log
     log_path = os.path.join(config.RESULTS_DIR, "run_log.json")
     with open(log_path, "w") as f:
@@ -512,6 +727,8 @@ def run():
     print(f"  Tokens in/out:  {run_log['tokens']['input']:,} / {run_log['tokens']['output']:,}")
     print(f"  Errors:         {len(run_log['errors'])}")
     print(f"  Archive:        {archive_path}")
+    if open_rows:
+        print(f"  Open codes:     {len(open_rows)} beliefs → {open_path}")
     print(f"  Run log:        {log_path}")
 
 

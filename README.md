@@ -12,16 +12,16 @@ Across cultures and history, people hold deep, often implicit beliefs about why 
 
 The **Suffering Beliefs Framework** is a systematic effort to identify, catalog, and study these beliefs across a broad corpus of philosophical, religious, literary, and testimonial texts. The core research question: *what are the recurring belief structures humans invoke to make sense of suffering, and what are their psychological and cultural dimensions?*
 
-This pipeline is the data extraction infrastructure for that project. It uses large language models to scan texts at scale, identify passages that express a general belief about suffering, and tag each one against a working classification of belief types — producing a structured archive that human researchers then validate, refine, and analyze.
+This pipeline is the data extraction infrastructure for that project. It uses large language models to scan texts at scale, identify passages that express a general belief about suffering, and name each belief in its own terms — producing a structured archive and a list of open-coded beliefs that human researchers then validate, consolidate into a classification, and analyze.
 
 **What goes in:** a set of texts (open-access corpus, eventually ~37 sources)
-**What comes out:** a structured archive of suffering-belief passages, tagged by type, constructs, and confidence — ready for human validation, quantitative analysis, and qualitative deep-dives
+**What comes out:** a structured archive of suffering-belief passages, plus one row per belief (label, definition, evidence quote, construct dimension, ratings) — ready for human validation, clustering into candidate themes, and qualitative deep-dives
 
 ---
 
 ## Pipeline overview
 
-The pipeline runs in four stages, each leaving a full audit trail:
+The pipeline runs in five stages, each leaving a full audit trail. A separate script then groups the open-coded beliefs into candidate themes.
 
 ### Stage 1 — Preprocessing
 Each text is cleaned (Gutenberg headers stripped, encoding normalized) and split into overlapping **~1,000-word chunks** with a 200-word overlap between consecutive chunks. Overlap prevents a belief statement that falls near a chunk boundary from being split and missed. Each chunk gets a stable ID like `dante_alighieri_inferno_c0012`.
@@ -31,35 +31,38 @@ Every chunk is scanned for **tier 1–2 keywords** from the protocol (§4):
 - **Tier 1:** suffer\*, pain, hardship, adversity
 - **Tier 2:** affliction, misery, anguish, agony, torment, tribulation, ordeal, distress
 
-Keyword hits are flagged as candidates and recorded in the archive. Each chunk is also scanned for Christine's **seed words** — a vocabulary tied to her nine construct dimensions (prevalence, controllability, meaning, fairness, etc.). These seed matches are recorded as secondary annotations but do not determine whether a chunk enters the pipeline.
+Inflected forms count (tormented, miserable, hardships); "pain" does not match "painted". The keyword list has a version (`keywords_v2`) recorded in `run_log.json`.
+
+Keyword hits are flagged as candidates and recorded in the archive. Each chunk is also scanned for Christine's **seed words** — a vocabulary tied to her nine construct dimensions (prevalence, controllability, meaning, fairness, etc.). These seed matches are recorded as secondary annotations but do not determine whether a chunk enters the pipeline. The seed words live in `seed_topics.py`, which is not in this repo; without it the pipeline runs and leaves `seed_constructs` blank.
 
 ### Stage 3a — Screening (Claude Haiku)
-*Every* chunk — not just keyword hits — is screened with a minimal yes/no question:
-> "Does this chunk plausibly contain a general claim about the nature, meaning, purpose, or value of suffering?"
+*Every* chunk — not just keyword hits — is screened with a yes/no question: could any part of it plausibly be read as stating, implying or disputing a general claim about the nature, cause, meaning, purpose, or value of suffering? The screen favors recall: when unsure, YES.
 
 Chunks that screen YES but had no keyword hit are **contextual passages** — beliefs the keyword search would have missed. The share of contextual passages in the final archive is the keyword-recall estimate reported in the methods.
 
 ### Stage 3b — Filter (Claude Haiku)
 All keyword-hit chunks and contextual chunks are sent the full filter question:
-> "Does this passage express or imply a general belief about the nature, meaning, purpose, or value of suffering *as a phenomenon*?"
+> "Does this passage express or imply a general belief about the nature, cause, meaning, purpose, or value of suffering as a phenomenon?"
 
-The model returns **YES**, **MAYBE**, or **NO**, plus a one-sentence summary of the core belief for YES/MAYBE passages. Only YES and MAYBE passages proceed to tagging. This step reduces candidates by roughly 60–70%.
+The model returns **YES**, **MAYBE**, or **NO** with a one-line reason, plus, for YES/MAYBE passages, a verbatim evidence quote and a one-sentence core belief. Only YES and MAYBE passages proceed to Stage 4.
 
-### Stage 4 — Tagging (Claude Sonnet)
-Each surviving passage is tagged against the **working classification**:
+### Stage 4 — Open coding (Claude Sonnet)
+The tagger is given **no code list**. For each belief a passage asserts or explicitly denies, it returns:
 
-| Code | Belief type |
-|------|-------------|
-| 1 | Punishment/consequence |
-| 2 | Teacher/growth |
-| 3 | Craving/attachment |
-| 4 | Shared condition |
-| 5 | Call to compassion |
-| 6 | Acceptance/equanimity |
-| 7 | Mystery/unknowable |
-| 0 | None of the above → new candidate label proposed |
+- a two-to-four-word **label** and a one-sentence **definition** in everyday words
+- a verbatim **evidence** quote
+- a **stance** (asserts or denies)
+- one primary **construct dimension** from Christine's nine, and at most one secondary
 
-The model also identifies which of Christine's **nine construct dimensions** the belief engages (cause, meaning, fairness, controllability, etc.) and assigns a confidence level. Multiple codes may apply to one passage.
+These go to `results/open_codes.csv`, one row per belief. The classification is built from these open codes; it is not assumed in advance.
+
+The earlier seven-code working classification (punishment, growth, craving, shared condition, compassion, acceptance, mystery) is **not used in this pass**. It remains in `pipeline.py` only for the deductive tag prompt (`tag_v3`), which is meant to be run later against the classification derived from the open codes.
+
+### Stage 5 — Rating (Claude Sonnet)
+Each asserted belief is rated 1–5 on evaluation, inevitability and intertwinement, with blank meaning the belief takes no position. See "Prompt layout" below.
+
+### After the run — Clustering
+`python cluster_open_codes.py` groups the beliefs by the similarity of their definitions and writes `results/cluster_summary.csv`: one row per candidate theme, with its size, most common labels and most central definition, for the team to name, merge and split into classification v1. It needs `pip install pandas scikit-learn sentence-transformers`; use `--scan` to see how many clusters different thresholds give, and `--k 30` to ask for a fixed number.
 
 ---
 
@@ -71,6 +74,23 @@ From `system_v1` / `screen_v2` / `filter_v3` / `tag_v3` on, every call has two p
 - **Task prompt** (one per step), sent as the user message with the passage filled in at `<<PASSAGE>>`. The tag prompt also takes `<<CLASSIFICATION>>`, `<<CONSTRUCTS>>` and `<<CORE_BELIEF>>`.
 
 New output fields: the filter returns a short `reason` and a verbatim `evidence` quote (checked against the chunk and recorded as `evidence_verbatim`); the tagger returns `rejects`, the codes a passage explicitly denies.
+
+The tag step has two modes, chosen by `TAG_PROMPT_VERSION` in `config.py`:
+
+- `tag_open_v1` (current setting): **open coding**. The tagger is given no code list. For each belief a passage asserts or explicitly denies it returns a label, a one-sentence definition, a verbatim evidence quote and a stance. These go to `results/open_codes.csv`, one row per belief, which is the input for building the classification. In the archive, `tags` is empty and `open_labels` lists the labels.
+- `tag_v3`: **deductive coding** against the working classification in `pipeline.py`. Use it once a classification has been built from the open codes.
+
+In open coding each belief also gets one primary construct dimension and at most one secondary, so `open_codes.csv` can be tabulated by dimension to check coverage. Names outside the list are recorded as `INVALID(...)`.
+
+**Step 5, rating (`rate_v1`).** After open coding, each asserted belief is rated 1-5 on three dimensions, with blank meaning the belief takes no position:
+
+| Rating | 1 | 5 |
+|--------|---|---|
+| `rating_evaluation` | suffering is purely harmful | suffering can enrich a life |
+| `rating_inevitability` | avoidable or exceptional | an inevitable part of every life |
+| `rating_intertwinement` | separate from and opposed to what is good in life | bound up with what people care about most |
+
+One call per passage (`RATE_MODEL`); results are columns in `open_codes.csv`, with empty `human_*` columns for blind validation. Denied beliefs are not rated. Set `RATE_PROMPT_VERSION = None` in `config.py` to skip the step. Before analysis: validate the ratings against human coders, and remove duplicate beliefs that come from the 200-word overlap between chunks.
 
 The original prompts (`screen_v1`, `filter_v2`, `tag_v2`) still run unchanged: a prompt file without `<<PASSAGE>>` is sent as the system message with the passage as the user message, as before. Set the versions in `config.py`.
 
@@ -187,7 +207,9 @@ Annotation Pipeline/
 │   │   ├── system_v1.txt         ← shared system prompt (v3 layout)
 │   │   ├── screen_v2.txt         ← screening task prompt
 │   │   ├── filter_v3.txt         ← filter task prompt
-│   │   ├── tag_v3.txt            ← tagging task prompt
+│   │   ├── tag_open_v1.txt       ← open-coding task prompt (no code list)
+│   │   ├── rate_v1.txt           ← rating task prompt (step 5)
+│   │   ├── tag_v3.txt            ← tagging task prompt (working classification)
 │   │   ├── screen_v1.txt         ← original screening prompt
 │   │   ├── filter_v2.txt         ← original filter prompt
 │   │   └── tag_v2.txt            ← original tagging prompt
