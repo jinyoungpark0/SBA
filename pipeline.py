@@ -490,13 +490,24 @@ def tag_passage(text: str, core_belief: str):
 # Labeled text writer
 # ---------------------------------------------------------------------------
 
+CODED = ("YES", "MAYBE", "SKIPPED")       # filter decisions after which the tag step runs
+
+
+def is_archived(chunk) -> bool:
+    """Filter on: the filter said YES or MAYBE. Filter off: the tag step found something."""
+    decision = chunk.get("filter_decision")
+    if decision == "SKIPPED":
+        return bool(chunk.get("beliefs") or chunk.get("tags"))
+    return decision in ("YES", "MAYBE")
+
+
 def write_labeled_file(source_name: str, chunks: list, run_date: str):
     os.makedirs(os.path.join(config.RESULTS_DIR, "labeled"), exist_ok=True)
     path = os.path.join(config.RESULTS_DIR, "labeled", f"{source_name}_labeled.txt")
 
     n_keyword    = sum(1 for c in chunks if c["is_keyword_hit"])
     n_contextual = sum(1 for c in chunks if c["screen"] == "YES" and not c["is_keyword_hit"])
-    n_archived   = sum(1 for c in chunks if c.get("filter_decision") in ("YES", "MAYBE"))
+    n_archived   = sum(1 for c in chunks if is_archived(c))
 
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"SOURCE:    {source_name}\n")
@@ -528,7 +539,9 @@ def write_labeled_file(source_name: str, chunks: list, run_date: str):
                     if chunk.get("evidence_verbatim") == "no":
                         f.write("QUOTE CHECK: evidence not found verbatim in chunk\n")
 
-            if fd in ("YES", "MAYBE"):
+            if fd in CODED:
+                if not chunk.get("beliefs") and not chunk.get("tags"):
+                    f.write("OPEN CODE: none found\n")
                 tag_str = ", ".join(
                     f"{t} ({TAG_NAMES.get(t, '?')})" for t in chunk.get("tags", [])
                 )
@@ -587,7 +600,8 @@ def run():
         "tag_model":     config.TAG_MODEL,
         "system_prompt": system_version,
         "screen_prompt": config.SCREEN_PROMPT_VERSION,
-        "filter_prompt": config.FILTER_PROMPT_VERSION,
+        "filter_prompt": config.FILTER_PROMPT_VERSION if getattr(config, "USE_FILTER", True) else "",
+        "use_filter":    getattr(config, "USE_FILTER", True),
         "tag_prompt":    config.TAG_PROMPT_VERSION,
         "rate_model":    getattr(config, "RATE_MODEL", ""),
         "rate_prompt":   getattr(config, "RATE_PROMPT_VERSION", None) or "",
@@ -644,9 +658,16 @@ def run():
 
         # Step 3b — filter keyword hits + contextual chunks
         to_filter = [c for c in chunks if c["is_keyword_hit"] or c["screen"] == "YES"]
-        print(f"  Filtering {len(to_filter)} candidates...")
+        use_filter = getattr(config, "USE_FILTER", True)
+        if use_filter:
+            print(f"  Filtering {len(to_filter)} candidates...")
+        else:
+            print(f"  Filter step is off: {len(to_filter)} candidates go straight to the tag step")
+            for chunk in to_filter:
+                chunk["filter_decision"] = "SKIPPED"
+                chunk["core_belief"] = chunk["filter_reason"] = chunk["evidence"] = chunk["evidence_verbatim"] = ""
 
-        for chunk in to_filter:
+        for chunk in (to_filter if use_filter else []):
             decision, core_belief, extra, usage = filter_passage(chunk["text"])
             chunk["filter_decision"] = decision
             chunk["core_belief"]     = core_belief
@@ -668,9 +689,9 @@ def run():
                 chunk["evidence"]        = ""
                 chunk["evidence_verbatim"] = ""
 
-        # Step 4 — tag YES/MAYBE passages
-        to_tag = [c for c in chunks if c.get("filter_decision") in ("YES", "MAYBE")]
-        print(f"  Tagging {len(to_tag)} archived passages...")
+        # Step 4 — tag YES/MAYBE passages (or every candidate, when the filter is off)
+        to_tag = [c for c in chunks if c.get("filter_decision") in CODED]
+        print(f"  Tagging {len(to_tag)} passages...")
 
         for chunk in to_tag:
             tag_result, usage = tag_passage(chunk["text"], chunk.get("core_belief", ""))
@@ -719,7 +740,7 @@ def run():
 
         # Build archive rows (archived = filter YES or MAYBE)
         for chunk in chunks:
-            if chunk.get("filter_decision") not in ("YES", "MAYBE"):
+            if not is_archived(chunk):
                 continue
 
             kw_words = ", ".join(h["word"] for h in chunk["keyword_hits"])
@@ -797,7 +818,7 @@ def run():
 
         # Labeled text file
         labeled_path = write_labeled_file(source_name, chunks, run_date)
-        n_archived = sum(1 for c in chunks if c.get("filter_decision") in ("YES", "MAYBE"))
+        n_archived = sum(1 for c in chunks if is_archived(c))
         print(f"  Archived: {n_archived}  |  labeled → {labeled_path}")
 
         run_log["texts"].append({

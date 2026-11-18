@@ -48,6 +48,8 @@ What counts as a belief is defined once, in the system prompt: the aspects it li
 
 The model returns **YES**, **MAYBE**, or **NO** with a one-line reason, plus, for YES/MAYBE passages, a verbatim evidence quote and a one-sentence core belief. Only YES and MAYBE passages proceed to Stage 4.
 
+**The filter is currently switched off** (`USE_FILTER = False` in `config.py`). In run 2 (Tao Te Ching, The Metamorphosis, two talk transcripts) it passed 4 of 42 candidate chunks and never answered MAYBE; it rejected all of the fiction as narrative and treated shame and vulnerability as outside suffering. With it off, every keyword-hit or screened-YES chunk goes to Stage 4, which uses `tag_open_v2` and can answer "no beliefs". A chunk is archived when Stage 4 finds at least one belief.
+
 ### Stage 4 — Open coding (Claude Sonnet)
 The tagger is given **no code list and no list of topics**, so that beliefs nobody anticipated can surface. For each belief a passage expresses, it returns:
 

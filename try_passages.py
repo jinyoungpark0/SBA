@@ -46,10 +46,13 @@ def run_one(text):
     """All steps for one passage. Returns a dict of results."""
     out = {"text": text, "keywords": [h["word"] for h in keyword_scan(text)[0]]}
     out["screen"], _ = pipeline.screen(text)
-    decision, core_belief, extra, _ = pipeline.filter_passage(text)
+    if getattr(config, "USE_FILTER", True):
+        decision, core_belief, extra, _ = pipeline.filter_passage(text)
+    else:
+        decision, core_belief, extra = "SKIPPED", "", {"reason": "filter step is off", "evidence": ""}
     out.update(filter=decision, reason=extra["reason"], evidence=extra["evidence"],
                evidence_verbatim=pipeline.is_verbatim(extra["evidence"], text), core_belief=core_belief)
-    if decision in ("YES", "MAYBE"):
+    if decision in pipeline.CODED:
         tag, _ = pipeline.tag_passage(text, core_belief)
         out.update(confidence=tag["confidence"], tags=tag["tags"], rejects=tag["rejects"],
                    new_candidate=tag["new_candidate"], beliefs=tag["beliefs"])

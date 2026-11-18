@@ -28,7 +28,7 @@ LOCAL_TEXTS_DIR = os.path.join(BASE_DIR, "texts", "local")
 # Change the name for every new run. Run folders are ignored by Git because the
 # archive and labeled files contain the full text of the sources.
 # Set to "" to write straight into results/, as the original pipeline did.
-RUN_NAME    = "run2_four_texts"
+RUN_NAME    = "run3_no_filter"
 RESULTS_DIR = os.path.join(BASE_DIR, "results", RUN_NAME) if RUN_NAME else os.path.join(BASE_DIR, "results")
 PROMPTS_DIR = os.path.join(BASE_DIR, "prompts")
 
@@ -80,6 +80,7 @@ OPENROUTER_ROUTING = {
 #   are sent as the system message and SYSTEM_PROMPT_VERSION is not used.
 #
 # Tag step, two modes:
+#   tag_open_v2  as tag_open_v1, for passages that have not been through the filter
 #   tag_open_v1  open coding. No code list; the tagger names each belief it finds
 #                (label, definition, evidence). Output: results/open_codes.csv, one
 #                row per belief. Use this first, to build the classification.
@@ -88,7 +89,15 @@ OPENROUTER_ROUTING = {
 SYSTEM_PROMPT_VERSION = "system_v1"
 SCREEN_PROMPT_VERSION = "screen_v2"
 FILTER_PROMPT_VERSION = "filter_v3"
-TAG_PROMPT_VERSION    = "tag_open_v1"
+TAG_PROMPT_VERSION    = "tag_open_v2"
+
+# Step 3b, the filter. In run 2 it passed only 4 of 42 candidate chunks and never
+# answered MAYBE, so most of the texts were never coded.
+#   False : skip it. Every keyword-hit or screened-YES chunk goes straight to the
+#           tag step, which can itself answer "no beliefs" (use tag_open_v2).
+#           A chunk is archived if the tag step finds at least one belief.
+#   True  : run the filter as before; only YES and MAYBE chunks are tagged.
+USE_FILTER = False
 
 # Step 5: place each open-coded belief in an area (BELIEF_AREAS in pipeline.py)
 # and rate it on evaluation, inevitability and intertwinement (1-5, blank = no
