@@ -145,7 +145,9 @@ python try_passages.py                    # a few short test passages first
 python pipeline.py                        # the texts listed in PILOT_TEXTS
 ```
 
-Results land in `results/`. Then open `viewer.html` in a browser and load the archive CSV.
+Results land in `results/<RUN_NAME>/` (`RUN_NAME` is set in `config.py`; change it for each run so nothing is overwritten). Then open `viewer.html` in a browser and load that folder's archive CSV. With OpenRouter, the run's cost is printed at the end and saved in `run_log.json`.
+
+**Texts that cannot be shared.** Put copyrighted transcripts and licensed translations in `texts/local/`. Git ignores that folder and the run folders under `results/`, because the archive and labeled files contain the full text of the sources. A file named in `PILOT_TEXTS` is looked for in the main texts folder first, then in `texts/local/`.
 
 **Provider.** `PROVIDER` in `config.py` selects where the calls go:
 

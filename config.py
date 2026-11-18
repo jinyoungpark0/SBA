@@ -18,12 +18,27 @@ TEXTS_DIR  = _first_existing(
     os.path.join(BASE_DIR, "texts", "open acess"),
     os.path.join(BASE_DIR, "..", "texts", "open access"),
 )
-RESULTS_DIR = os.path.join(BASE_DIR, "results")
+
+# Texts that must stay off GitHub (copyrighted transcripts, licensed translations)
+# go in texts/local/, which Git ignores. A file named in PILOT_TEXTS is looked
+# for in TEXTS_DIR first, then here.
+LOCAL_TEXTS_DIR = os.path.join(BASE_DIR, "texts", "local")
+
+# Each run writes to results/<RUN_NAME>/, so an earlier run is never overwritten.
+# Change the name for every new run. Run folders are ignored by Git because the
+# archive and labeled files contain the full text of the sources.
+# Set to "" to write straight into results/, as the original pipeline did.
+RUN_NAME    = "run2_four_texts"
+RESULTS_DIR = os.path.join(BASE_DIR, "results", RUN_NAME) if RUN_NAME else os.path.join(BASE_DIR, "results")
 PROMPTS_DIR = os.path.join(BASE_DIR, "prompts")
 
 # Pilot subset — comment out PILOT_TEXTS to run all texts in TEXTS_DIR
 PILOT_TEXTS = [
-    "Dante_Alighieri_Inferno.txt",
+    "Laozi_Tao_Te_Ching.txt",                                          # Legge translation, Project Gutenberg #216
+    "Franz_Kafka_The_Metamorphosis.txt",                               # Wyllie translation, Project Gutenberg #5200
+    "Brene_Brown_The_Power_of_Vulnerability.txt",                      # TEDxHouston 2010 transcript
+    "Andrew_Solomon_Why_Is_It_So_Hard_To_Talk_About_Depression.txt",   # NPR TED Radio Hour transcript
+    # "Dante_Alighieri_Inferno.txt",
 ]
 
 CHUNK_WORDS   = 1000

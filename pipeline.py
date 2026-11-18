@@ -156,6 +156,7 @@ else:
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 SERVED_BY = set()      # "upstream provider / model" as reported by OpenRouter; written to run_log.json
+COST = {"usd": 0.0}    # what OpenRouter says the calls cost, summed
 
 
 def load_prompt(name: str) -> str:
@@ -203,6 +204,7 @@ def _openrouter_send(temperature, model, max_tokens, system, messages):
         raise RuntimeError(f"OpenRouter error {error.get('code')}: {str(error.get('message'))[:300]}")
     SERVED_BY.add(f"{data.get('provider', 'unknown')} / {data.get('model', model)}")
     usage = data.get("usage") or {}
+    COST["usd"] += usage.get("cost") or 0
     text  = data["choices"][0]["message"].get("content") or ""
     return text, types.SimpleNamespace(input_tokens=usage.get("prompt_tokens", 0),
                                        output_tokens=usage.get("completion_tokens", 0))
@@ -562,10 +564,11 @@ def run():
 
     # Resolve text file paths
     if config.PILOT_TEXTS:
-        filepaths = [
-            os.path.join(config.TEXTS_DIR, fname)
-            for fname in config.PILOT_TEXTS
-        ]
+        local_dir = getattr(config, "LOCAL_TEXTS_DIR", config.TEXTS_DIR)
+        filepaths = []
+        for fname in config.PILOT_TEXTS:      # TEXTS_DIR first, then texts/local/
+            in_repo = os.path.join(config.TEXTS_DIR, fname)
+            filepaths.append(in_repo if os.path.exists(in_repo) else os.path.join(local_dir, fname))
     else:
         filepaths = sorted(Path(config.TEXTS_DIR).glob("*.txt"))
 
@@ -827,6 +830,7 @@ def run():
     run_log["totals"]["open_codes"] = len(open_rows)
     run_log["temperature"] = TEMPERATURE_MODES[_temperature_mode]
     run_log["served_by"]   = sorted(SERVED_BY)     # OpenRouter only: who actually answered
+    run_log["cost_usd"]    = round(COST["usd"], 4) if PROVIDER == "openrouter" else None
 
     # Write run log
     log_path = os.path.join(config.RESULTS_DIR, "run_log.json")
@@ -844,6 +848,8 @@ def run():
     print(f"  Archived:       {t['archived']}")
     print(f"  Tokens in/out:  {run_log['tokens']['input']:,} / {run_log['tokens']['output']:,}")
     print(f"  Errors:         {len(run_log['errors'])}")
+    if PROVIDER == "openrouter":
+        print(f"  Cost:           ${COST['usd']:.2f} (as reported by OpenRouter)")
     print(f"  Archive:        {archive_path}")
     if open_rows:
         print(f"  Open codes:     {len(open_rows)} beliefs → {open_path}")

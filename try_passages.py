@@ -114,11 +114,13 @@ def main():
         results.append(r)
         show(n, notes, r)
 
-    os.makedirs(config.RESULTS_DIR, exist_ok=True)
-    out_path = os.path.join(config.RESULTS_DIR, "test_passages_output.json")
+    results_dir = os.path.join(config.BASE_DIR, "results")
+    os.makedirs(results_dir, exist_ok=True)
+    out_path = os.path.join(results_dir, "test_passages_output.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump({"run_date": datetime.now().isoformat(),
                    "provider": pipeline.PROVIDER, "served_by": sorted(pipeline.SERVED_BY),
+                   "cost_usd": round(pipeline.COST["usd"], 4) if pipeline.PROVIDER == "openrouter" else None,
                    "temperature": pipeline.TEMPERATURE_MODES[pipeline._temperature_mode],
                    "prompts": {"system": config.SYSTEM_PROMPT_VERSION, "screen": config.SCREEN_PROMPT_VERSION,
                                "filter": config.FILTER_PROMPT_VERSION, "tag": config.TAG_PROMPT_VERSION,
@@ -126,6 +128,8 @@ def main():
                    "models": {"screen": config.SCREEN_MODEL, "filter": config.FILTER_MODEL,
                               "tag": config.TAG_MODEL, "rate": getattr(config, "RATE_MODEL", None)},
                    "results": results}, f, indent=2, ensure_ascii=False)
+    if pipeline.PROVIDER == "openrouter":
+        print(f"Cost: ${pipeline.COST['usd']:.2f} (as reported by OpenRouter)")
     print(f"Saved to {out_path}")
 
 
