@@ -22,7 +22,7 @@ label: two to four plain words naming the belief, as general as the definition. 
 
 stance: how the passage stands toward the belief.
 "endorses": the passage puts the belief forward as true.
-"denies": the passage explicitly rejects it. Write the definition and label for the belief being denied: a passage saying pain is not a punishment denies the belief that suffering is punishment.
+"denies": the passage explicitly rejects the belief. State the belief in its positive form, as someone who holds it would put it, and let the stance carry the rejection. For a passage saying pain is not a punishment, the definition is "Suffering is a punishment for wrongdoing.", the label is "punishment" and the stance is "denies". Do not put the negation in the definition or the label ("Suffering is not a punishment").
 "mentions": the passage reports the belief as something people say or hold, such as a common saying or a view attributed to others, without taking a side.
 "conditional": the passage holds the belief only in some circumstances or with a stated qualification. Put the condition in the definition.
 "depicts": a story or poem shows the belief through what happens, with the link made in the passage itself, and no narrator or character states it.
