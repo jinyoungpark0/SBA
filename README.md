@@ -136,19 +136,27 @@ The charts use **cross-filtering**: the construct chart always shows the constru
 
 ## Quick start
 
-**Requirements:** Python 3.9+, `pip install anthropic`, an Anthropic API key
+**Requirements:** Python 3.9+ and an API key for the provider set in `config.py`.
 
 ```bash
-# From the pilot/ directory:
-export ANTHROPIC_API_KEY="sk-ant-..."
-python pipeline.py
+# From the folder that holds pipeline.py:
+export OPENROUTER_API_KEY="sk-or-..."     # PROVIDER = "openrouter" (current setting)
+python try_passages.py                    # a few short test passages first
+python pipeline.py                        # the texts listed in PILOT_TEXTS
 ```
 
-Results land in `pilot/results/`. Then open `viewer.html` in a browser and load the archive CSV.
+Results land in `results/`. Then open `viewer.html` in a browser and load the archive CSV.
+
+**Provider.** `PROVIDER` in `config.py` selects where the calls go:
+
+- `"openrouter"`: OpenRouter, with `OPENROUTER_API_KEY`. No extra Python package. OpenRouter can hand a request to any of several companies hosting the same model, so `OPENROUTER_ROUTING` pins it: Anthropic only, no fallback to another host, and no hosts that keep or train on the text. The host and model that actually answered are written to `run_log.json` (`served_by`).
+- `"anthropic"`: Anthropic's API directly, with `ANTHROPIC_API_KEY` and `pip install anthropic`.
+
+The models are the same under both (Haiku 4.5 for screening and filtering, Sonnet 4.6 for tagging and step 5); only their names differ. Report the provider in the methods, since a run through OpenRouter and a run through Anthropic are not guaranteed to be identical.
 
 **To change which texts are processed:** edit `PILOT_TEXTS` in `config.py`. Comment it out entirely to run all texts in `texts/open access/`.
 
-**To change models:** edit `SCREEN_MODEL`, `FILTER_MODEL`, `TAG_MODEL` in `config.py`. The pipeline currently uses Haiku for screening/filtering and Sonnet for tagging.
+**To change models:** edit `MODELS` in `config.py`. The pipeline currently uses Haiku for screening/filtering and Sonnet for tagging.
 
 **Estimated cost:** ~270 chunks from a single text costs roughly $0.50–1. Running the full 37-text corpus would cost roughly $15–25.
 

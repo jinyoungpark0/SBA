@@ -13,7 +13,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import anthropic
+import types
+import urllib.error
+import urllib.request
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -127,7 +129,33 @@ OPEN_CODE_FIELDS = [
 # API helpers
 # ---------------------------------------------------------------------------
 
-client = anthropic.Anthropic()
+# Which API the calls go to: set PROVIDER in config.py.
+#   "anthropic"   Anthropic's API directly   (ANTHROPIC_API_KEY, `pip install anthropic`)
+#   "openrouter"  OpenRouter                 (OPENROUTER_API_KEY, no extra package)
+PROVIDER = getattr(config, "PROVIDER", "anthropic")
+
+
+class RateLimited(Exception):
+    """The API asked us to slow down; call_claude waits and retries."""
+
+
+if PROVIDER == "anthropic":
+    import anthropic
+    client = anthropic.Anthropic()
+    RATE_LIMIT_ERRORS = (anthropic.RateLimitError, RateLimited)
+elif PROVIDER == "openrouter":
+    client = None
+    RATE_LIMIT_ERRORS = (RateLimited,)
+    OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not OPENROUTER_KEY:
+        raise SystemExit('OPENROUTER_API_KEY is not set. In the terminal run:\n'
+                         '    export OPENROUTER_API_KEY="sk-or-..."\n'
+                         'or set PROVIDER = "anthropic" in config.py.')
+else:
+    raise SystemExit(f'config.PROVIDER must be "anthropic" or "openrouter", not {PROVIDER!r}')
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+SERVED_BY = set()      # "upstream provider / model" as reported by OpenRouter; written to run_log.json
 
 
 def load_prompt(name: str) -> str:
@@ -144,35 +172,94 @@ TEMPERATURE_MODES = ["temperature=0", "temperature=0 via extra_body",
 _temperature_mode = 0
 
 
+def _openrouter_send(temperature, model, max_tokens, system, messages):
+    """One chat-completion request to OpenRouter. Returns (text, usage)."""
+    routing = dict(getattr(config, "OPENROUTER_ROUTING", {}))
+    body = {"model": model, "max_tokens": max_tokens,
+            "messages": [{"role": "system", "content": system}] + messages}
+    if temperature is not None:
+        body["temperature"] = temperature
+        routing["require_parameters"] = True      # never let an upstream provider silently drop temperature
+    if routing:
+        body["provider"] = routing
+    request = urllib.request.Request(
+        OPENROUTER_URL, data=json.dumps(body).encode("utf-8"),
+        headers={"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=180) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")[:300]
+        if e.code == 429:
+            raise RateLimited(detail)
+        if e.code in (401, 402, 403):             # bad key, no credits, key disabled: retrying cannot help
+            raise SystemExit(f"OpenRouter refused the request (HTTP {e.code}): {detail}\n"
+                             "Check OPENROUTER_API_KEY and the credit balance on your OpenRouter account.")
+        raise RuntimeError(f"OpenRouter HTTP {e.code}: {detail}")
+    if data.get("error"):                         # errors can also arrive with HTTP 200
+        error = data["error"]
+        if error.get("code") == 429:
+            raise RateLimited(str(error.get("message")))
+        raise RuntimeError(f"OpenRouter error {error.get('code')}: {str(error.get('message'))[:300]}")
+    SERVED_BY.add(f"{data.get('provider', 'unknown')} / {data.get('model', model)}")
+    usage = data.get("usage") or {}
+    text  = data["choices"][0]["message"].get("content") or ""
+    return text, types.SimpleNamespace(input_tokens=usage.get("prompt_tokens", 0),
+                                       output_tokens=usage.get("completion_tokens", 0))
+
+
+def _send(mode, **kw):
+    """One request in the given temperature mode. Returns (text, usage)."""
+    if PROVIDER == "openrouter":
+        return _openrouter_send(0 if mode == 0 else None, **kw)
+    if mode == 0:
+        msg = client.messages.create(temperature=0, **kw)
+    elif mode == 1:
+        msg = client.messages.create(extra_body={"temperature": 0}, **kw)
+    else:
+        msg = client.messages.create(**kw)
+    return msg.content[0].text, msg.usage
+
+
+def _parameter_refused(error) -> bool:
+    text = str(error).lower()
+    if "temperature" in text:
+        return True
+    # With require_parameters, OpenRouter reports an unsupported parameter as "no endpoints"
+    return PROVIDER == "openrouter" and ("no endpoints" in text or "parameter" in text)
+
+
 def _create(**kw):
+    """Send a request, stepping down the temperature modes if temperature=0 is refused."""
     global _temperature_mode
+    last = len(TEMPERATURE_MODES) - 1
+    mode = _temperature_mode
     while True:
         try:
-            if _temperature_mode == 0:
-                return client.messages.create(temperature=0, **kw)
-            if _temperature_mode == 1:
-                return client.messages.create(extra_body={"temperature": 0}, **kw)
-            return client.messages.create(**kw)
-        except anthropic.RateLimitError:
+            result = _send(mode, **kw)
+        except RATE_LIMIT_ERRORS:
             raise
         except Exception as e:
-            if "temperature" not in str(e).lower() or _temperature_mode == len(TEMPERATURE_MODES) - 1:
+            if mode == last or not _parameter_refused(e):
                 raise
-            _temperature_mode += 1
-            print(f"    temperature refused ({str(e)[:80]}) — now using: {TEMPERATURE_MODES[_temperature_mode]}")
+            mode = last if PROVIDER == "openrouter" else mode + 1
+            continue
+        if mode != _temperature_mode:             # only adopt a fallback that actually worked
+            _temperature_mode = mode
+            print(f"    temperature=0 was refused — now using: {TEMPERATURE_MODES[mode]}")
+        return result
 
 
 def call_claude(model: str, system: str, user: str, max_tokens=256, retries=3):
     for attempt in range(retries):
         try:
-            msg = _create(
+            return _create(
                 model=model,
                 max_tokens=max_tokens,
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
-            return msg.content[0].text, msg.usage
-        except anthropic.RateLimitError:
+        except RATE_LIMIT_ERRORS:
             wait = 2 ** (attempt + 1)
             print(f"    Rate limit — waiting {wait}s")
             time.sleep(wait)
@@ -490,6 +577,8 @@ def run():
 
     run_log = {
         "run_date":      run_date,
+        "provider":      PROVIDER,
+        "openrouter_routing": getattr(config, "OPENROUTER_ROUTING", {}) if PROVIDER == "openrouter" else None,
         "screen_model":  config.SCREEN_MODEL,
         "filter_model":  config.FILTER_MODEL,
         "tag_model":     config.TAG_MODEL,
@@ -737,6 +826,7 @@ def run():
             writer.writerows(open_rows)
     run_log["totals"]["open_codes"] = len(open_rows)
     run_log["temperature"] = TEMPERATURE_MODES[_temperature_mode]
+    run_log["served_by"]   = sorted(SERVED_BY)     # OpenRouter only: who actually answered
 
     # Write run log
     log_path = os.path.join(config.RESULTS_DIR, "run_log.json")

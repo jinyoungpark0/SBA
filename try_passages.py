@@ -104,6 +104,7 @@ def main():
     args = ap.parse_args()
 
     passages = [([], args.text)] if args.text else read_passages(args.file)
+    print(f"provider: {pipeline.PROVIDER} | models: {config.FILTER_MODEL}, {config.TAG_MODEL}")
     print(f"{len(passages)} passage(s) | screen {config.SCREEN_PROMPT_VERSION}, filter {config.FILTER_PROMPT_VERSION}, "
           f"tag {config.TAG_PROMPT_VERSION}, step 5 {getattr(config, 'RATE_PROMPT_VERSION', None) or 'off'}\n")
     results = []
@@ -117,6 +118,7 @@ def main():
     out_path = os.path.join(config.RESULTS_DIR, "test_passages_output.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump({"run_date": datetime.now().isoformat(),
+                   "provider": pipeline.PROVIDER, "served_by": sorted(pipeline.SERVED_BY),
                    "temperature": pipeline.TEMPERATURE_MODES[pipeline._temperature_mode],
                    "prompts": {"system": config.SYSTEM_PROMPT_VERSION, "screen": config.SCREEN_PROMPT_VERSION,
                                "filter": config.FILTER_PROMPT_VERSION, "tag": config.TAG_PROMPT_VERSION,

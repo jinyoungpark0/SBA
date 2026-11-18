@@ -29,10 +29,33 @@ PILOT_TEXTS = [
 CHUNK_WORDS   = 1000
 OVERLAP_WORDS = 200
 
-SCREEN_MODEL = "claude-haiku-4-5-20251001"
-FILTER_MODEL = "claude-haiku-4-5-20251001"
-TAG_MODEL    = "claude-sonnet-4-6"
-RATE_MODEL   = "claude-sonnet-4-6"
+# ── API provider ─────────────────────────────────────────────────────────────
+#   "openrouter"  OpenRouter. Needs OPENROUTER_API_KEY; no extra Python package.
+#   "anthropic"   Anthropic's API directly. Needs ANTHROPIC_API_KEY and
+#                 `pip install anthropic`.
+PROVIDER = "openrouter"
+
+# The same two models under each provider's naming.
+MODELS = {
+    "anthropic":  {"small": "claude-haiku-4-5-20251001",  "large": "claude-sonnet-4-6"},
+    "openrouter": {"small": "anthropic/claude-haiku-4.5", "large": "anthropic/claude-sonnet-4.6"},
+}
+SCREEN_MODEL = MODELS[PROVIDER]["small"]
+FILTER_MODEL = MODELS[PROVIDER]["small"]
+TAG_MODEL    = MODELS[PROVIDER]["large"]
+RATE_MODEL   = MODELS[PROVIDER]["large"]
+
+# OpenRouter can pass a request to any of several companies that host the same
+# model. These settings (sent with every request) keep that fixed:
+#   only             : the request goes to Anthropic itself, not another host
+#   allow_fallbacks  : if Anthropic is unavailable, fail; do not switch host
+#   data_collection  : refuse hosts that keep or train on the text (protocol §2)
+# The host and model that actually answered are recorded in run_log.json.
+OPENROUTER_ROUTING = {
+    "only": ["anthropic"],
+    "allow_fallbacks": False,
+    "data_collection": "deny",
+}
 
 # Prompt versions (files in prompts/). Never edit a prompt in place: add a new
 # file and change the version here.
