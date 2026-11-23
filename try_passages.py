@@ -55,9 +55,9 @@ def run_one(text):
     if decision in pipeline.CODED:
         tag, _ = pipeline.tag_passage(text, core_belief)
         out.update(confidence=tag["confidence"], tags=tag["tags"], rejects=tag["rejects"],
-                   new_candidate=tag["new_candidate"], beliefs=tag["beliefs"])
-        if tag["beliefs"]:
-            ok, _ = pipeline.rate_beliefs(text, tag["beliefs"])
+                   new_candidate=tag["new_candidate"], beliefs=tag["beliefs"], depicted=tag["depicted"])
+        if tag["beliefs"] or tag["depicted"]:
+            ok, _ = pipeline.rate_beliefs(text, tag["beliefs"] + tag["depicted"])
             out["step5"] = {None: "skipped (switched off)", True: "ok", False: "ERROR"}[ok]
     return out
 
@@ -83,7 +83,7 @@ def show(n, notes, r):
             print(f"tags: {names or 'none'}    rejects: {r['rejects'] or 'none'}")
         if r["new_candidate"]:
             print(f"new candidate: {r['new_candidate']}")
-        if not r["beliefs"] and not r["tags"]:
+        if not r["beliefs"] and not r["depicted"] and not r["tags"]:
             print("beliefs: none (the tag step found no qualifying belief)")
         for i, b in enumerate(r["beliefs"], start=1):
             print(f"\n  BELIEF {i}: {b['label']}   [stance: {b['stance']}]")
@@ -95,6 +95,12 @@ def show(n, notes, r):
                 print(f"    area: {b['area']}{note}    ratings: {ratings}")
                 if b["rating_reason"]:
                     print(f"    why: {b['rating_reason']}")
+        for i, b in enumerate(r["depicted"], start=1):
+            print(f"\n  DEPICTED THEME {i}: {b['label']}   [shown, not stated]")
+            print(f"    {b['definition']}")
+            print(f"    evidence: \"{b['evidence']}\"")
+            if b["area"]:
+                print(f"    area: {b['area']}" + (f" ({b['area_note']})" if b["area_note"] else ""))
         if r.get("step5") == "ERROR":
             print("  [step 5 returned something that could not be read]")
     print()

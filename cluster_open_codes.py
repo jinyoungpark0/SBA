@@ -1,7 +1,9 @@
 """
 Group the open-coded beliefs into candidate themes.
 
-Input:   results/open_codes.csv   (written by pipeline.py with tag_open_v1)
+Input:   open_codes.csv in the current run's results folder (stated beliefs only).
+         Depicted themes are a separate file and are not clustered unless you ask:
+         python cluster_open_codes.py --input results/<run>/depicted_themes.csv
 Output:  results/open_code_clusters.csv   every belief, with its cluster and map position
          results/cluster_summary.csv      one row per cluster, for the consolidation meeting
 
@@ -88,6 +90,8 @@ def main():
     args = ap.parse_args()
 
     df = pd.read_csv(args.input, dtype=str).fillna("")
+    if "stance" not in df:                 # depicted_themes.csv has no stance column
+        df["stance"] = "depicts"
     df["duplicate"] = mark_duplicates(df)
     keep = df[~df["duplicate"] & (df["definition"].str.strip() != "")].copy()
     print(f"{len(df)} beliefs read; {int(df['duplicate'].sum())} overlap duplicates set aside; clustering {len(keep)}")
@@ -104,7 +108,9 @@ def main():
         return
 
     keep["cluster"] = cluster(X, threshold=args.threshold, k=args.k)
-    xy = PCA(n_components=2).fit_transform(X)            # 2-D map of the beliefs, for plotting
+    dims = min(2, X.shape[0], X.shape[1])                # 2-D map of the beliefs, for plotting
+    xy = np.zeros((len(keep), 2))
+    xy[:, :dims] = PCA(n_components=dims).fit_transform(X)
     keep["pca_x"], keep["pca_y"] = xy[:, 0].round(4), xy[:, 1].round(4)
 
     rows = []

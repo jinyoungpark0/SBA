@@ -75,7 +75,7 @@ AREA_NAMES = [line.split(":")[0].strip("- ").strip() for line in BELIEF_AREAS.sp
 # How a passage stands toward a belief (tag_open_v1). Ratings are given only
 # where the passage takes the belief's side in some form.
 STANCES         = ["endorses", "denies", "mentions", "conditional", "depicts"]
-UNRATED_STANCES = {"denies": "denied", "mentions": "mentioned only"}
+UNRATED_STANCES = {"denies": "denied", "mentions": "mentioned only", "depicts": "depicted"}
 
 # Step 5 ratings (rate_v1): 1-5, or blank when the belief takes no position
 RATING_DIMENSIONS = ["evaluation", "inevitability", "intertwinement"]
@@ -97,7 +97,7 @@ ARCHIVE_FIELDS = [
     "screen", "filter_trigger",
     "filter_decision", "filter_reason", "core_belief",
     "evidence", "evidence_verbatim",
-    "tags", "tag_names", "rejects", "open_labels", "constructs", "confidence",
+    "tags", "tag_names", "rejects", "open_labels", "depicted_labels", "constructs", "confidence",
     "new_candidate_label", "new_candidate_definition",
     "text_excerpt",
     # Human validation (empty — for RAs)
@@ -121,6 +121,19 @@ OPEN_CODE_FIELDS = [
     "consolidated_code",
     "human_evaluation", "human_inevitability", "human_intertwinement",
     "coder_notes",
+    # Provenance
+    "model_tag", "model_rate", "prompt_system", "prompt_tag", "prompt_rate", "run_date",
+]
+
+# One row per depicted theme (tag_open_v3): what a story shows about suffering
+# without anyone stating it. These are the coder's reading of the passage. They
+# go to results/depicted_themes.csv and are never written to open_codes.csv.
+DEPICTED_FIELDS = [
+    "chunk_id", "text_id", "source", "theme_n",
+    "label", "definition", "evidence", "evidence_verbatim",
+    "area", "area_note", "confidence",
+    # Review (empty — for the research team)
+    "reviewer_decision", "coder_notes",
     # Provenance
     "model_tag", "model_rate", "prompt_system", "prompt_tag", "prompt_rate", "run_date",
 ]
@@ -331,7 +344,12 @@ def is_verbatim(evidence: str, text: str) -> str:
     """Quote-fidelity check on the model's evidence quote: 'yes'/'no', '' if none."""
     if not evidence:
         return ""
-    return "yes" if " ".join(evidence.split()) in " ".join(text.split()) else "no"
+    def plain(s):         # ignore spacing and typographic quotes, dashes and ellipses
+        for curly, straight in (("\u201c", '"'), ("\u201d", '"'), ("\u2018", "'"), ("\u2019", "'"),
+                                ("\u2014", "-"), ("\u2013", "-"), ("--", "-"), ("\u2026", "...")):
+            s = s.replace(curly, straight)
+        return " ".join(s.split())
+    return "yes" if plain(evidence) in plain(text) else "no"
 
 
 def get_screen_prompt():
@@ -392,17 +410,18 @@ def filter_passage(text: str):
     return decision, core_belief, extra, usage
 
 
-def clean_beliefs(raw):
+def clean_beliefs(raw, depicted=False):
     """
-    Open-coding output (tag_open_v1): one dict per belief with label, definition,
-    stance and evidence. Area and ratings are added by step 5.
+    Open-coding output: one dict per belief with label, definition, stance and
+    evidence. Area and ratings are added by step 5. With depicted=True the items
+    are depicted themes (tag_open_v3), which carry no stance of their own.
     """
     beliefs = []
     for b in raw if isinstance(raw, list) else []:
         if isinstance(b, dict):
             belief = {k: str(b.get(k) or "").strip()
                       for k in ("label", "definition", "stance", "evidence")}
-            stance = belief["stance"].lower()
+            stance = "depicts" if depicted else belief["stance"].lower()
             stance = "endorses" if stance == "asserts" else stance
             belief["stance"] = stance if stance in STANCES else f"INVALID({stance[:20]})"
             belief["area"] = belief["area_note"] = belief["rating_reason"] = ""
@@ -471,18 +490,24 @@ def rate_beliefs(text: str, beliefs: list):
 def tag_passage(text: str, core_belief: str):
     legacy = f"Core belief: {core_belief}\n\nPassage:\n{text}"
     system, user = build_call(get_tag_prompt(), text, legacy_user=legacy, core_belief=core_belief)
-    result, usage = call_claude(config.TAG_MODEL, system, user, max_tokens=800)
+    result, usage = call_claude(config.TAG_MODEL, system, user, max_tokens=1200)
     parsed = parse_json(result)
     if parsed:
+        stated   = clean_beliefs(parsed.get("beliefs"))
+        depicted = clean_beliefs(parsed.get("depicted"), depicted=True)       # tag_open_v3
+        if "depicted" in parsed:      # v3: a "depicts" entry in the wrong list is moved, not mixed in
+            depicted += [b for b in stated if b["stance"] == "depicts"]
+            stated    = [b for b in stated if b["stance"] != "depicts"]
         return {
             "tags":          [int(t) for t in parsed.get("tags", [])],
             "rejects":       [int(t) for t in parsed.get("rejects") or []],   # tag_v3
-            "beliefs":       clean_beliefs(parsed.get("beliefs")),            # tag_open_v1
+            "beliefs":       stated,                                          # tag_open_v1+
+            "depicted":      depicted,
             "confidence":    parsed.get("confidence", ""),
             "constructs":    parsed.get("constructs") or [],
             "new_candidate": parsed.get("new_candidate"),
         }, usage
-    return {"tags": [], "rejects": [], "beliefs": [], "confidence": "ERROR",
+    return {"tags": [], "rejects": [], "beliefs": [], "depicted": [], "confidence": "ERROR",
             "constructs": [], "new_candidate": None}, usage
 
 
@@ -497,7 +522,7 @@ def is_archived(chunk) -> bool:
     """Filter on: the filter said YES or MAYBE. Filter off: the tag step found something."""
     decision = chunk.get("filter_decision")
     if decision == "SKIPPED":
-        return bool(chunk.get("beliefs") or chunk.get("tags"))
+        return bool(chunk.get("beliefs") or chunk.get("depicted") or chunk.get("tags"))
     return decision in ("YES", "MAYBE")
 
 
@@ -540,7 +565,7 @@ def write_labeled_file(source_name: str, chunks: list, run_date: str):
                         f.write("QUOTE CHECK: evidence not found verbatim in chunk\n")
 
             if fd in CODED:
-                if not chunk.get("beliefs") and not chunk.get("tags"):
+                if not chunk.get("beliefs") and not chunk.get("depicted") and not chunk.get("tags"):
                     f.write("OPEN CODE: none found\n")
                 tag_str = ", ".join(
                     f"{t} ({TAG_NAMES.get(t, '?')})" for t in chunk.get("tags", [])
@@ -555,6 +580,9 @@ def write_labeled_file(source_name: str, chunks: list, run_date: str):
                     if any(b[dim] != "" for dim in RATING_DIMENSIONS):
                         detail += [f"{dim} {b[dim] if b[dim] != '' else 'NA'}" for dim in RATING_DIMENSIONS]
                     f.write(f"CODE DETAIL: {', '.join(detail)}\n")
+                for b in chunk.get("depicted", []):
+                    f.write(f"DEPICTED:  {b['label']} — {b['definition']}"
+                            f"  [area {b['area'] or 'not assigned'}]\n")
                 f.write(f"CONSTRUCTS:{' ' + ', '.join(chunk.get('constructs', [])) or ' none'}\n")
                 f.write(f"CONFIDENCE:{' ' + chunk.get('confidence', '')}\n")
                 nc = chunk.get("new_candidate")
@@ -614,7 +642,8 @@ def run():
     }
 
     archive_rows = []
-    open_rows    = []      # one row per belief, open-coding pass only
+    open_rows    = []      # one row per stated belief, open-coding pass only
+    depicted_rows = []     # one row per depicted theme (tag_open_v3)
 
     for filepath in filepaths:
         if not os.path.exists(filepath):
@@ -698,6 +727,7 @@ def run():
             chunk["tags"]          = tag_result["tags"]
             chunk["rejects"]       = tag_result["rejects"]
             chunk["beliefs"]       = tag_result["beliefs"]
+            chunk["depicted"]      = tag_result["depicted"]
             chunk["confidence"]    = tag_result["confidence"]
             chunk["constructs"]    = tag_result["constructs"]
             chunk["new_candidate"] = tag_result["new_candidate"]
@@ -709,14 +739,14 @@ def run():
             time.sleep(0.05)
 
         # Step 5 — areas and ratings for the open-coded beliefs (open-coding runs only)
-        to_rate = [c for c in to_tag if c["beliefs"]]
+        to_rate = [c for c in to_tag if c["beliefs"] or c["depicted"]]
         if to_rate and get_rate_prompt():
             print(f"  Assigning areas and ratings in {len(to_rate)} passages...")
         for chunk in to_rate:
-            ok, usage = rate_beliefs(chunk["text"], chunk["beliefs"])
+            ok, usage = rate_beliefs(chunk["text"], chunk["beliefs"] + chunk["depicted"])
             if ok is not None:
                 chunk["constructs"] = belief_areas(chunk["beliefs"])
-            for b in chunk["beliefs"]:
+            for b in chunk["beliefs"] + chunk["depicted"]:
                 if b["area"].startswith("INVALID"):
                     run_log["errors"].append(f"{chunk['chunk_id']} area name")
                 if b["stance"].startswith("INVALID"):
@@ -734,6 +764,7 @@ def run():
                 chunk["tags"]          = []
                 chunk["rejects"]       = []
                 chunk["beliefs"]       = []
+                chunk["depicted"]      = []
                 chunk["confidence"]    = "N/A"
                 chunk["constructs"]    = []
                 chunk["new_candidate"] = None
@@ -766,6 +797,7 @@ def run():
                 "tag_names":      tag_name_str,
                 "rejects":        ", ".join(str(t) for t in chunk["rejects"]),
                 "open_labels":    "; ".join(b["label"] + stance_mark(b) for b in chunk["beliefs"]),
+                "depicted_labels": "; ".join(b["label"] for b in chunk["depicted"]),
                 "constructs":     ", ".join(chunk["constructs"]),
                 "confidence":     chunk["confidence"],
                 "new_candidate_label":      nc.get("label", ""),
@@ -816,6 +848,28 @@ def run():
                     "run_date":      run_date,
                 })
 
+            for n, b in enumerate(chunk["depicted"], start=1):
+                depicted_rows.append({
+                    "chunk_id":   chunk["chunk_id"],
+                    "text_id":    chunk["text_id"],
+                    "source":     source_name,
+                    "theme_n":    n,
+                    "label":      b["label"],
+                    "definition": b["definition"],
+                    "evidence":   b["evidence"],
+                    "evidence_verbatim": is_verbatim(b["evidence"], chunk["text"]),
+                    "area":       b["area"],
+                    "area_note":  b["area_note"],
+                    "confidence": chunk["confidence"],
+                    "reviewer_decision": "", "coder_notes": "",
+                    "model_tag":     config.TAG_MODEL,
+                    "model_rate":    getattr(config, "RATE_MODEL", "") if get_rate_prompt() else "",
+                    "prompt_system": system_version,
+                    "prompt_tag":    config.TAG_PROMPT_VERSION,
+                    "prompt_rate":   (getattr(config, "RATE_PROMPT_VERSION", None) or ""),
+                    "run_date":      run_date,
+                })
+
         # Labeled text file
         labeled_path = write_labeled_file(source_name, chunks, run_date)
         n_archived = sum(1 for c in chunks if is_archived(c))
@@ -849,6 +903,15 @@ def run():
             writer.writeheader()
             writer.writerows(open_rows)
     run_log["totals"]["open_codes"] = len(open_rows)
+
+    # Depicted themes go to their own file, never into open_codes.csv
+    depicted_path = os.path.join(config.RESULTS_DIR, "depicted_themes.csv")
+    if depicted_rows:
+        with open(depicted_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=DEPICTED_FIELDS)
+            writer.writeheader()
+            writer.writerows(depicted_rows)
+    run_log["totals"]["depicted_themes"] = len(depicted_rows)
     run_log["temperature"] = TEMPERATURE_MODES[_temperature_mode]
     run_log["served_by"]   = sorted(SERVED_BY)     # OpenRouter only: who actually answered
     run_log["cost_usd"]    = round(COST["usd"], 4) if PROVIDER == "openrouter" else None
@@ -873,7 +936,9 @@ def run():
         print(f"  Cost:           ${COST['usd']:.2f} (as reported by OpenRouter)")
     print(f"  Archive:        {archive_path}")
     if open_rows:
-        print(f"  Open codes:     {len(open_rows)} beliefs → {open_path}")
+        print(f"  Open codes:     {len(open_rows)} stated beliefs → {open_path}")
+    if depicted_rows:
+        print(f"  Depicted:       {len(depicted_rows)} themes → {depicted_path}")
     print(f"  Run log:        {log_path}")
 
 

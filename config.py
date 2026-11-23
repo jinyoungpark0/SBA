@@ -28,7 +28,7 @@ LOCAL_TEXTS_DIR = os.path.join(BASE_DIR, "texts", "local")
 # Change the name for every new run. Run folders are ignored by Git because the
 # archive and labeled files contain the full text of the sources.
 # Set to "" to write straight into results/, as the original pipeline did.
-RUN_NAME    = "run3_no_filter"
+RUN_NAME    = "run4_depicted_separate"
 RESULTS_DIR = os.path.join(BASE_DIR, "results", RUN_NAME) if RUN_NAME else os.path.join(BASE_DIR, "results")
 PROMPTS_DIR = os.path.join(BASE_DIR, "prompts")
 
@@ -80,16 +80,20 @@ OPENROUTER_ROUTING = {
 #   are sent as the system message and SYSTEM_PROMPT_VERSION is not used.
 #
 # Tag step, two modes:
+#   tag_open_v3  two lists: stated beliefs (someone in the passage makes the general
+#                claim) and depicted themes (a story shows it, nobody states it).
+#                Themes go to results/depicted_themes.csv and never into
+#                open_codes.csv. Use with system_v2 and rate_v2.
 #   tag_open_v2  as tag_open_v1, for passages that have not been through the filter
 #   tag_open_v1  open coding. No code list; the tagger names each belief it finds
 #                (label, definition, evidence). Output: results/open_codes.csv, one
 #                row per belief. Use this first, to build the classification.
 #   tag_v3       deductive coding against WORKING_CLASSIFICATION in pipeline.py.
 #                Use once a classification has been built from the open codes.
-SYSTEM_PROMPT_VERSION = "system_v1"
+SYSTEM_PROMPT_VERSION = "system_v2"
 SCREEN_PROMPT_VERSION = "screen_v2"
 FILTER_PROMPT_VERSION = "filter_v3"
-TAG_PROMPT_VERSION    = "tag_open_v2"
+TAG_PROMPT_VERSION    = "tag_open_v3"
 
 # Step 3b, the filter. In run 2 it passed only 4 of 42 candidate chunks and never
 # answered MAYBE, so most of the texts were never coded.
@@ -103,4 +107,4 @@ USE_FILTER = False
 # and rate it on evaluation, inevitability and intertwinement (1-5, blank = no
 # position). Runs only after tag_open_v1. Set to None to skip the step; areas
 # and ratings are then left blank.
-RATE_PROMPT_VERSION   = "rate_v1"
+RATE_PROMPT_VERSION   = "rate_v2"

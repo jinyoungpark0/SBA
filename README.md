@@ -59,6 +59,8 @@ The tagger is given **no code list and no list of topics**, so that beliefs nobo
 
 These go to `results/open_codes.csv`, one row per belief. The classification is built from these open codes; it is not assumed in advance.
 
+**Stated beliefs and depicted themes are kept apart** (`tag_open_v3`). A stated belief needs a stretch of the passage in which the author, narrator or a speaker actually makes the general claim. What a story, poem or anecdote only shows through its events is a *depicted theme*: the coder's reading, limited to three per passage, written to `depicted_themes.csv` with an empty `reviewer_decision` column, and never mixed into `open_codes.csv`. Themes get an area in step 5 but no ratings. In run 3, before this split, The Metamorphosis alone produced 74 "beliefs", most of them morals read into the story.
+
 The earlier seven-code working classification (punishment, growth, craving, shared condition, compassion, acceptance, mystery) is **not used in this pass**. It remains in `pipeline.py` only for the deductive tag prompt (`tag_v3`), which is meant to be run later against the classification derived from the open codes.
 
 ### Stage 5 — Areas and ratings (Claude Sonnet)
