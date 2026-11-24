@@ -1,99 +1,112 @@
 # Suffering Beliefs Annotation Pipeline
 
-**Project:** Suffering Beliefs Framework (SBF), SCF Lab, Duke University
+**Project:** Suffering Beliefs Framework (SBF), SHARE Lab, Duke University (named SCF Lab in the protocol)
 **Grant:** John Templeton Foundation FR#63879
 **Protocol:** `SBF_AI_Text_Analysis_Protocol_v2.docx` (August 2026)
+
+The protocol describes an earlier design: a filter step and a fixed list of seven codes. This README describes the pipeline as it runs now. Where the two differ, the protocol and the coding manual have not yet been revised.
+
+---
+
+## Status (24 November 2026)
+
+| Setting | Current value |
+|---|---|
+| Coding approach | Open coding: no code list and no topic list is given to the model |
+| System prompt | `system_v2` |
+| Screen (step 3a) | `screen_v2`, Claude Haiku 4.5 |
+| Filter (step 3b) | **off** (`USE_FILTER = False`) |
+| Open coding (step 4) | `tag_open_v3`, Claude Sonnet 4.6 |
+| Areas and ratings (step 5) | `rate_v2`, Claude Sonnet 4.6 |
+| Provider | OpenRouter, restricted to Anthropic, data collection denied |
+| Keywords | `keywords_v2` |
+
+Runs so far:
+
+| Run | Date | Texts | Prompts (system / open coding / ratings) | Filter | Result |
+|---|---|---|---|---|---|
+| Original pilot | 10 Nov | Inferno | none / `tag_v2` / none | on | 25 archived passages, fixed code list |
+| Test passages | 18 Nov | 8 short constructed passages | `system_v1` / `tag_open_v1` / `rate_v1` | on | 8 of 8 coded as expected |
+| Run 2 | 18 Nov | Tao Te Ching, The Metamorphosis, two talk transcripts | `system_v1` / `tag_open_v1` / `rate_v1` | on | 4 of 42 candidate passages passed the filter; 26 beliefs; $0.47 |
+| Run 3 | 18 Nov | same four | `system_v1` / `tag_open_v2` / `rate_v1` | off | 42 of 42 coded; 136 beliefs, 74 from The Metamorphosis; $1.49 |
+| Run 4 | not yet run | same four | `system_v2` / `tag_open_v3` / `rate_v2` | off | |
+
+Run 2 showed the filter was too strict. Run 3 showed open coding without the filter was too loose: no passage came back empty, and morals were read into the fiction. Run 4 separates stated beliefs from depicted themes to correct this.
+
+None of the prompts has been validated against human coding.
 
 ---
 
 ## What we are building
 
-Across cultures and history, people hold deep, often implicit beliefs about why suffering exists and what it means. These beliefs — that suffering is punishment for wrongdoing, a path to growth, an inescapable shared condition, a divine mystery — shape how people cope, seek help, and make sense of their own pain.
+Across cultures and history, people hold deep, often implicit beliefs about why suffering exists and what it means. These beliefs shape how people cope, seek help, and make sense of their own pain.
 
-The **Suffering Beliefs Framework** is a systematic effort to identify, catalog, and study these beliefs across a broad corpus of philosophical, religious, literary, and testimonial texts. The core research question: *what are the recurring belief structures humans invoke to make sense of suffering, and what are their psychological and cultural dimensions?*
+The **Suffering Beliefs Framework** is a systematic effort to identify, catalog, and study these beliefs across a broad corpus of philosophical, religious, literary, and testimonial texts, including contemporary spoken sources such as talks, podcasts and interviews. The core research question: *what are the recurring belief structures humans invoke to make sense of suffering, and what are their psychological and cultural dimensions?*
 
-This pipeline is the data extraction infrastructure for that project. It uses large language models to scan texts at scale, identify passages that express a general belief about suffering, and name each belief in its own terms — producing a structured archive and a list of open-coded beliefs that human researchers then validate, consolidate into a classification, and analyze.
+This pipeline is the data extraction step. It uses large language models to scan texts, find passages that state a general belief about suffering, and name each belief in its own terms. Human researchers then validate the output, consolidate it into a classification, and use it to write items for the Suffering Beliefs Scale.
 
-**What goes in:** a set of texts (open-access corpus, eventually ~37 sources)
-**What comes out:** a structured archive of suffering-belief passages, plus one row per belief (label, definition, evidence quote, construct dimension, ratings) — ready for human validation, clustering into candidate themes, and qualitative deep-dives
+**What goes in:** a set of texts (open-access corpus, eventually about 37 sources, plus texts kept locally).
+
+**What comes out, per run:**
+- one row per **stated belief**: label, definition, stance, evidence quote, area, three ratings
+- one row per **depicted theme**: what a story shows about suffering without anyone stating it
+- one row per coded passage, and a readable file per text showing every decision
+- after clustering: candidate themes and a master workbook for framework generation
 
 ---
 
 ## Pipeline overview
 
-The pipeline runs in five stages, each leaving a full audit trail. A separate script then groups the open-coded beliefs into candidate themes.
+The pipeline runs in five steps, each leaving an audit trail. Two further scripts group the beliefs into candidate themes and build the master file.
 
-### Stage 1 — Preprocessing
-Each text is cleaned (Gutenberg headers stripped, encoding normalized) and split into overlapping **~1,000-word chunks** with a 200-word overlap between consecutive chunks. Overlap prevents a belief statement that falls near a chunk boundary from being split and missed. Each chunk gets a stable ID like `dante_alighieri_inferno_c0012`.
+### Step 1: Preprocessing
+Each text is cleaned (Gutenberg headers stripped, line endings normalized) and split into overlapping **1,000-word chunks** with a 200-word overlap. The overlap keeps a belief near a chunk boundary from being cut in two. A trailing fragment under 50 words is dropped. Each chunk gets a stable ID such as `laozi_tao_te_ching_c0012`.
 
-### Stage 2 — Keyword scan
-Every chunk is scanned for **tier 1–2 keywords** from the protocol (§4):
+### Step 2: Keyword scan
+Every chunk is scanned for the protocol's tier 1 and tier 2 keywords (§4):
 - **Tier 1:** suffer\*, pain, hardship, adversity
 - **Tier 2:** affliction, misery, anguish, agony, torment, tribulation, ordeal, distress
 
-Inflected forms count (tormented, miserable, hardships); "pain" does not match "painted". The keyword list has a version (`keywords_v2`) recorded in `run_log.json`.
+Inflected forms count (tormented, miserable, hardships); "pain" does not match "painted". The list has a version (`keywords_v2`) recorded in `run_log.json`. The list is short on purpose: a broader one flagged every chunk of the Inferno, and step 3a catches what the keywords miss.
 
-Keyword hits are flagged as candidates and recorded in the archive. Each chunk is also scanned for Christine's **seed words** — a vocabulary tied to her nine construct dimensions (prevalence, controllability, meaning, fairness, etc.). These seed matches are recorded as secondary annotations but do not determine whether a chunk enters the pipeline. The seed words live in `seed_topics.py`, which is not in this repo; without it the pipeline runs and leaves `seed_constructs` blank.
+The scan can also record matches to Christine's seed words for nine construct dimensions. That list (`seed_topics.py`) is not in this repo, and without it the `seed_constructs` column is left blank. It plays no part in selecting or coding passages.
 
-### Stage 3a — Screening (Claude Haiku)
-*Every* chunk — not just keyword hits — is screened with a yes/no question: could any part of it plausibly be read as stating, implying or disputing a general claim about suffering as a phenomenon, on any aspect of it? The screen favors recall: when unsure, YES.
+### Step 3a: Screening (Claude Haiku)
+*Every* chunk is screened with a yes/no question: could any part of it plausibly be read as stating, implying or disputing a general claim about suffering? The screen favors recall: when unsure, YES.
 
-Chunks that screen YES but had no keyword hit are **contextual passages** — beliefs the keyword search would have missed. The share of contextual passages in the final archive is the keyword-recall estimate reported in the methods.
+A chunk is a **candidate** if it has a keyword hit or screens YES. Candidates with no keyword are *contextual* passages, the ones a keyword search alone would have missed. In run 3, 18 of 42 candidates were contextual.
 
-### Stage 3b — Filter (Claude Haiku)
-All keyword-hit chunks and contextual chunks are sent the full filter question:
-> "Does this passage express or imply a general belief about suffering as a phenomenon, on any aspect of it?"
+### Step 3b: Filter (Claude Haiku), currently off
+The filter asks whether a candidate passage expresses a general belief about suffering, and answers YES, MAYBE or NO. It is switched off (`USE_FILTER = False` in `config.py`) because in run 2 it passed only 4 of 42 candidates, never answered MAYBE, rejected all of the fiction, and treated shame and vulnerability as outside suffering.
 
-What counts as a belief is defined once, in the system prompt: the aspects it lists (what suffering is, how common it is, why it happens, what it does to people, how controllable it is, how to respond to one's own or others' suffering, how to judge it overall) are examples, and a claim about any other aspect counts equally.
+With the filter off, every candidate goes to step 4, which makes the same judgment itself and may return nothing. The prompt (`filter_v3`) stays in the repo; whether to rewrite it more leniently for the full corpus, where cost matters more, is an open question.
 
-The model returns **YES**, **MAYBE**, or **NO** with a one-line reason, plus, for YES/MAYBE passages, a verbatim evidence quote and a one-sentence core belief. Only YES and MAYBE passages proceed to Stage 4.
+### Step 4: Open coding (Claude Sonnet)
+The model is given **no code list and no list of topics**, so that beliefs nobody anticipated can surface. It records what the passage says about suffering in two separate lists (`tag_open_v3`).
 
-**The filter is currently switched off** (`USE_FILTER = False` in `config.py`). In run 2 (Tao Te Ching, The Metamorphosis, two talk transcripts) it passed 4 of 42 candidate chunks and never answered MAYBE; it rejected all of the fiction as narrative and treated shame and vulnerability as outside suffering. With it off, every keyword-hit or screened-YES chunk goes to Stage 4, which uses `tag_open_v2` and can answer "no beliefs". A chunk is archived when Stage 4 finds at least one belief.
-
-### Stage 4 — Open coding (Claude Sonnet)
-The tagger is given **no code list and no list of topics**, so that beliefs nobody anticipated can surface. For each belief a passage expresses, it returns:
-
+**Stated beliefs** are general claims that the author, the narrator or a speaker actually puts into words. The model must be able to quote one continuous stretch of the passage in which the claim is made. For each it returns:
 - a two-to-four-word **label** and a one-sentence **definition** in everyday words
-- a verbatim **evidence** quote
-- a **stance**: `endorses`, `denies`, `mentions` (reported as something people say, no side taken), `conditional` (held only under a stated condition) or `depicts` (shown through the events of a story, not stated)
+- a verbatim **evidence** quote of at most 40 words
+- a **stance**: `endorses`, `denies` (the belief is stated in its positive form and the stance carries the rejection), `mentions` (reported as something people say, no side taken), or `conditional` (held only under a stated condition)
 
-These go to `results/open_codes.csv`, one row per belief. The classification is built from these open codes; it is not assumed in advance.
+These go to `open_codes.csv`, one row per belief.
 
-**Stated beliefs and depicted themes are kept apart** (`tag_open_v3`). A stated belief needs a stretch of the passage in which the author, narrator or a speaker actually makes the general claim. What a story, poem or anecdote only shows through its events is a *depicted theme*: the coder's reading, limited to three per passage, written to `depicted_themes.csv` with an empty `reviewer_decision` column, and never mixed into `open_codes.csv`. Themes get an area in step 5 but no ratings. In run 3, before this split, The Metamorphosis alone produced 74 "beliefs", most of them morals read into the story.
+**Depicted themes** are what a story, poem or anecdote shows about suffering through its events, when no one in it says so. They are the model's reading. They are limited to three per passage, written to `depicted_themes.csv`, and never mixed into `open_codes.csv`.
 
-The earlier seven-code working classification (punishment, growth, craving, shared condition, compassion, acceptance, mystery) is **not used in this pass**. It remains in `pipeline.py` only for the deductive tag prompt (`tag_v3`), which is meant to be run later against the classification derived from the open codes.
+Either list may be empty. The model also reports its **confidence** (HIGH, MEDIUM, LOW) that an independent coder would produce the same two lists.
 
-### Stage 5 — Areas and ratings (Claude Sonnet)
-Only after the beliefs have been named are they placed on a fixed grid. Each belief gets one **area**; each asserted belief is also rated 1–5 on evaluation, inevitability and intertwinement, with blank meaning the belief takes no position. See "Prompt layout" below.
+What counts as a suffering belief is defined once, in the system prompt: the lab's definition of suffering, and five tests (claim, generality, individual difference, plain language, broad relevance) applied to each claim separately.
 
-### After the run — Clustering
-`python cluster_open_codes.py` groups the beliefs by the similarity of their definitions and writes `results/cluster_summary.csv`: one row per candidate theme, with its size, most common labels and most central definition, for the team to name, merge and split into classification v1. It needs `pip install pandas scikit-learn sentence-transformers`; use `--scan` to see how many clusters different thresholds give, and `--k 30` to ask for a fixed number. Every definition is about suffering, so their vectors share a large common part; the script removes it before grouping (otherwise most beliefs fall into one very large cluster). `--no-centre` turns this off.
+### Step 5: Areas and ratings (Claude Sonnet)
+Only after the beliefs have been named are they placed on a fixed grid (`rate_v2`), one call per passage.
 
-`python build_master.py` then writes `results/<run>/framework_master.xlsx`, the summary file for framework generation. Its Themes sheet has one row per candidate theme: definition, keywords, area, number of beliefs and texts, stance counts, mean ratings, example quotes, how many depicted themes support it, and empty columns for the team's name, decision and notes. The other sheets give coverage by area and text, each depicted theme with its nearest stated theme, and every stated belief with its theme. Counts and means are formulas, so they update when a belief is moved to another theme. It needs `pip install openpyxl` as well. A `stream` column marks where each belief comes from, so beliefs from the interviews, surveys and reviews can be appended later.
-
----
-
-## Prompt layout (v3)
-
-From `system_v1` / `screen_v2` / `filter_v3` / `tag_v3` on, every call has two parts:
-
-- **System prompt** (`prompts/system_v1.txt`), shared by all three steps: the coder's role, the five tests for a suffering belief (the four in protocol §8 and §14, plus a Claim test added here), the recurring judgment calls, the rule to code from the page and not from prior knowledge of the work, and JSON-only output.
-- **Task prompt** (one per step), sent as the user message with the passage filled in at `<<PASSAGE>>`. The tag prompt also takes `<<CLASSIFICATION>>`, `<<CONSTRUCTS>>` and `<<CORE_BELIEF>>`.
-
-New output fields: the filter returns a short `reason` and a verbatim `evidence` quote (checked against the chunk and recorded as `evidence_verbatim`); the tagger returns `rejects`, the codes a passage explicitly denies.
-
-The tag step has two modes, chosen by `TAG_PROMPT_VERSION` in `config.py`:
-
-- `tag_open_v1` (current setting): **open coding**. The tagger is given no code list. For each belief a passage expresses it returns a label, a one-sentence definition, a verbatim evidence quote and a stance. These go to `results/open_codes.csv`, one row per belief, which is the input for building the classification. In the archive, `tags` is empty and `open_labels` lists the labels.
-- `tag_v3`: **deductive coding** against the working classification in `pipeline.py`. Use it once a classification has been built from the open codes.
-
-**Step 5, areas and ratings (`rate_v1`).** After open coding, each belief is assigned one area, so `open_codes.csv` can be tabulated to check coverage. The grid (`BELIEF_AREAS` in `pipeline.py`) follows the qualitative interview guide, so the text and interview streams share one grid:
+Each stated belief and each depicted theme gets one **area**. The grid (`BELIEF_AREAS` in `pipeline.py`) follows the qualitative interview guide, so the text and interview streams share one grid:
 
 `understanding`, `prevalence`, `causes`, `consequences`, `controllability`, `personal_response`, `interpersonal_response`, `overall_evaluation`, plus `meaning_fairness` (prominent in the texts, absent from the guide) and `other`.
 
-A belief that fits no area is coded `other`, with a few words in `area_note` on what it is about; those rows are the candidates for areas the guide does not cover. Names outside the list are recorded as `INVALID(...)`. The grid is applied after open coding on purpose: it describes the beliefs that were found and plays no part in finding or naming them. Christine's nine construct dimensions are still used by `tag_v2` and `tag_v3`.
+A belief that fits no area is coded `other`, with a few words in `area_note`; those rows show where the grid is incomplete. The grid is applied after open coding on purpose: it describes the beliefs that were found and plays no part in finding or naming them.
 
-Each asserted belief is also rated 1-5 on three dimensions, with blank meaning the belief takes no position:
+Each belief the passage endorses or holds conditionally is also rated 1-5 on three dimensions. A blank means the belief takes no position.
 
 | Rating | 1 | 5 |
 |--------|---|---|
@@ -101,17 +114,57 @@ Each asserted belief is also rated 1-5 on three dimensions, with blank meaning t
 | `rating_inevitability` | avoidable or exceptional | an inevitable part of every life |
 | `rating_intertwinement` | separate from and opposed to what is good in life | bound up with what people care about most |
 
-One call per passage (`RATE_MODEL`); results are columns in `open_codes.csv`, with empty `human_*` columns for blind validation. Beliefs the passage denies or only mentions get an area but no ratings. Set `RATE_PROMPT_VERSION = None` in `config.py` to skip the step. Before analysis: validate the ratings against human coders, and remove duplicate beliefs that come from the 200-word overlap between chunks.
+Denied beliefs, mentioned beliefs and depicted themes get an area but no ratings. Set `RATE_PROMPT_VERSION = None` in `config.py` to skip the step.
 
-The original prompts (`screen_v1`, `filter_v2`, `tag_v2`) still run unchanged: a prompt file without `<<PASSAGE>>` is sent as the system message with the passage as the user message, as before. Set the versions in `config.py`.
+### After the run: candidate themes
+`python cluster_open_codes.py` groups the stated beliefs by the similarity of their definitions. It first sets aside duplicates that come from the overlap between chunks. Every definition is about suffering, so their vectors share a large common part; the script removes it before grouping, because otherwise most beliefs fall into one very large cluster (`--no-centre` turns this off). Use `--scan` to see how many clusters different thresholds give, `--threshold` to choose one, and `--k 30` to ask for a fixed number.
 
-The v3 prompts were drafted after reading pilot output and have not yet been validated against human coding. Report agreement on texts the prompts were not developed on.
+The clusters are a first draft for the team to name, merge and split. They are not the classification.
+
+### After the run: master file
+`python build_master.py` writes `framework_master.xlsx`, the summary file for framework generation:
+
+| Sheet | Contents |
+|---|---|
+| Themes | one row per candidate theme: definition, keywords, area, number of beliefs and texts, stance counts, mean ratings, example quotes, number of depicted themes that support it, and empty columns for the team's name, decision and notes |
+| Coverage | stated beliefs by area and text |
+| Depicted | each depicted theme with the stated theme it is closest to |
+| Beliefs | every stated belief with its theme |
+| About | how the file was built and what to fill in |
+
+Counts and means are formulas, so they update when a belief is moved to another theme. A `stream` column marks where each belief comes from, so beliefs from the interviews, surveys and reviews can be appended later.
 
 ---
 
-## Exploring results — the Viewer
+## Prompts
 
-The annotation viewer (`viewer.html`, in the root of this folder) is a self-contained browser tool for exploring one run. No server needed — open it directly. It reads the open-coding outputs. For a run that used the fixed code list (`tag_v2`, `tag_v3`), use `viewer_legacy.html`, which is the earlier viewer unchanged.
+Every call has two parts:
+
+- **System prompt** (`system_v2`), shared by all steps: the coder's role, the lab's definition of suffering, the five tests, the recurring judgment calls, guidance for spoken and contemporary sources, the rule to code from the page and not from prior knowledge of the work, and JSON-only output.
+- **Task prompt** (one per step), sent as the user message with the passage filled in at `<<PASSAGE>>`.
+
+Prompt files, with the ones in use marked:
+
+| File | Step | Status |
+|---|---|---|
+| `system_v2` | all | **in use** |
+| `screen_v2` | 3a | **in use** |
+| `tag_open_v3` | 4 | **in use**: stated beliefs and depicted themes as two lists |
+| `rate_v2` | 5 | **in use** |
+| `filter_v3` | 3b | not in use (filter off) |
+| `system_v1`, `tag_open_v1`, `tag_open_v2`, `rate_v1` | | used by runs 2 and 3 |
+| `tag_v3` | 4 | deductive coding against a fixed code list; for use once a classification exists |
+| `screen_v1`, `filter_v2`, `tag_v2` | | the original pilot's prompts |
+
+The versions are set in `config.py`. The original prompts still run unchanged: a prompt file without `<<PASSAGE>>` is sent as the system message with the passage as the user message.
+
+The seven-code working classification and the nine construct dimensions remain in `pipeline.py` only for `tag_v2` and `tag_v3`. They are not used in open coding and appear in no current prompt.
+
+---
+
+## Exploring results: the viewer
+
+The annotation viewer (`viewer.html`) is a self-contained browser tool for exploring one run. No server needed; open it directly. It reads the open-coding outputs. For a run that used the fixed code list (`tag_v2`, `tag_v3`), use `viewer_legacy.html`, which is the earlier viewer unchanged.
 
 ### Loading data
 1. Open `viewer.html` in any modern browser
@@ -122,11 +175,11 @@ The viewer picks up `open_codes.csv`, `depicted_themes.csv`, `pilot_archive.csv`
 ### What the viewer shows
 
 **Summary charts (left sidebar), each clickable as a filter:**
-- **Passages** — with stated beliefs, with depicted themes only, coded with nothing found, not coded
-- **Texts** — passages per text
-- **Belief areas** — stated beliefs and depicted themes by step 5 area
-- **Stance** — endorses, denies, mentions, conditional, and depicted theme
-- **Ratings** — distribution of the three 1-5 ratings over stated beliefs, including beliefs with no rating
+- **Passages**: with stated beliefs, with depicted themes only, coded with nothing found, not coded
+- **Texts**: passages per text
+- **Belief areas**: stated beliefs and depicted themes by step 5 area
+- **Stance**: endorses, denies, mentions, conditional, and depicted theme
+- **Ratings**: distribution of the three 1-5 ratings over stated beliefs, including beliefs with no rating
 
 **Passage cards (Passages view):**
 - Stated beliefs: label, definition, stance, area, ratings, evidence quote and the basis for the ratings
@@ -136,121 +189,145 @@ The viewer picks up `open_codes.csv`, `depicted_themes.csv`, `pilot_archive.csv`
 
 **Beliefs view:** one row per stated belief or depicted theme, sortable by column. Click a row to go to its passage.
 
-### EDA workflow
-The charts use **cross-filtering**: each chart shows its distribution *within the other current selections*. Selecting one text and then the area "causes" answers "what does this text say about why people suffer?"; selecting Intertwinement 1 lists every belief rated as treating suffering as separate from the good things in life. The search box narrows cards, table and charts together.
+The charts cross-filter: each shows its distribution within the other current selections. Selecting one text and then the area "causes" answers "what does this text say about why people suffer?". The search box narrows cards, table and charts together.
 
 ---
 
 ## Quick start
 
-**Requirements:** Python 3.9+ and an API key for the provider set in `config.py`.
+**Requirements:** Python 3.9+ and an API key for the provider set in `config.py`. The pipeline itself needs no extra packages with OpenRouter. Clustering and the master file need:
+
+```bash
+pip install pandas scikit-learn sentence-transformers openpyxl
+```
+
+**To run:**
 
 ```bash
 # From the folder that holds pipeline.py:
-export OPENROUTER_API_KEY="sk-or-..."     # PROVIDER = "openrouter" (current setting)
+export OPENROUTER_API_KEY="sk-or-..."     # lasts for this Terminal window only
 python try_passages.py                    # a few short test passages first
 python pipeline.py                        # the texts listed in PILOT_TEXTS
+python cluster_open_codes.py --scan       # see how many themes each threshold gives
+python cluster_open_codes.py              # group the stated beliefs
+python build_master.py                    # write framework_master.xlsx
 ```
 
-Results land in `results/<RUN_NAME>/` (`RUN_NAME` is set in `config.py`; change it for each run so nothing is overwritten). Then open `viewer.html` in a browser and open that run's folder. With OpenRouter, the run's cost is printed at the end and saved in `run_log.json`.
+Never write the key into a file in this folder: the repository is public.
 
-**Texts that cannot be shared.** Put copyrighted transcripts and licensed translations in `texts/local/`. Git ignores that folder and the run folders under `results/`, because the archive and labeled files contain the full text of the sources. A file named in `PILOT_TEXTS` is looked for in the main texts folder first, then in `texts/local/`.
+Results land in `results/<RUN_NAME>/`. `RUN_NAME` is set in `config.py`; change it for each run so nothing is overwritten. Then open `viewer.html` and open that run's folder.
+
+**Testing single passages.** `try_passages.py` sends short passages (a sentence, a social-media post) through the same steps without chunking. It reads `test_passages.txt`, where passages are separated by a line containing only `---` and a line starting with `#` is a note on the expected coding. Results are printed and saved to `results/test_passages_output.json`.
+
+**Texts that cannot be shared.** Put copyrighted transcripts and licensed translations in `texts/local/`. Git ignores that folder and the run folders under `results/`, because the outputs contain the full text of the sources. A file named in `PILOT_TEXTS` is looked for in the main texts folder first, then in `texts/local/`.
 
 **Provider.** `PROVIDER` in `config.py` selects where the calls go:
 
-- `"openrouter"`: OpenRouter, with `OPENROUTER_API_KEY`. No extra Python package. OpenRouter can hand a request to any of several companies hosting the same model, so `OPENROUTER_ROUTING` pins it: Anthropic only, no fallback to another host, and no hosts that keep or train on the text. The host and model that actually answered are written to `run_log.json` (`served_by`).
+- `"openrouter"`: OpenRouter, with `OPENROUTER_API_KEY`. OpenRouter can hand a request to any of several companies hosting the same model, so `OPENROUTER_ROUTING` pins it: Anthropic only, no fallback to another host, and no hosts that keep or train on the text. The host and model that actually answered are written to `run_log.json` (`served_by`), as is the cost.
 - `"anthropic"`: Anthropic's API directly, with `ANTHROPIC_API_KEY` and `pip install anthropic`.
 
-The models are the same under both (Haiku 4.5 for screening and filtering, Sonnet 4.6 for tagging and step 5); only their names differ. Report the provider in the methods, since a run through OpenRouter and a run through Anthropic are not guaranteed to be identical.
+The models are the same under both; only their names differ. Report the provider in the methods, since a run through OpenRouter and a run through Anthropic are not guaranteed to be identical.
 
-**To change which texts are processed:** edit `PILOT_TEXTS` in `config.py`. Comment it out entirely to run all texts in `texts/open access/`.
+**To change which texts are processed:** edit `PILOT_TEXTS` in `config.py`. Comment it out entirely to run all texts in the main texts folder.
 
-**To change models:** edit `MODELS` in `config.py`. The pipeline currently uses Haiku for screening/filtering and Sonnet for tagging.
+**To change models:** edit `MODELS` in `config.py`.
 
-**Estimated cost:** ~270 chunks from a single text costs roughly $0.50–1. Running the full 37-text corpus would cost roughly $15–25.
+**Cost.** Run 3 (filter off, 42,500 words, 47 chunks) cost $1.49, or about $3.50 per 100,000 words. Steps 4 and 5 on Sonnet account for most of it.
 
 ---
 
 ## Outputs
 
-### `results/pilot_archive.csv`
-One row per archived passage (filter = YES or MAYBE). The main deliverable — the Suffering Beliefs Archive described in protocol §5. Key columns:
+All in `results/<RUN_NAME>/`.
+
+### `open_codes.csv`
+One row per **stated belief**. This is the file that feeds clustering and the item pool.
+
+| Column | What it contains |
+|--------|-----------------|
+| `chunk_id`, `source`, `belief_n` | where the belief came from |
+| `label`, `definition` | the belief in the model's words |
+| `stance` | `endorses`, `denies`, `mentions`, `conditional` |
+| `evidence`, `evidence_verbatim` | the quote, and whether it occurs word for word in the chunk |
+| `area`, `area_note` | step 5 area |
+| `rating_evaluation`, `rating_inevitability`, `rating_intertwinement`, `rating_reason` | step 5 ratings and their basis |
+| `confidence` | HIGH / MEDIUM / LOW, for the passage |
+| `consolidated_code`, `human_evaluation`, `human_inevitability`, `human_intertwinement`, `coder_notes` | *empty, for the research team* |
+| `model_*`, `prompt_*`, `run_date` | provenance |
+
+### `depicted_themes.csv`
+One row per **depicted theme**: `label`, `definition`, `evidence`, `area`, and an empty `reviewer_decision`. No stance and no ratings. Written only when at least one theme is found.
+
+### `pilot_archive.csv`
+One row per **passage** in which step 4 found at least one stated belief or depicted theme (with the filter on: one row per passage the filter passed). Use it to check passage selection and to read beliefs in context.
 
 | Column | What it contains |
 |--------|-----------------|
 | `chunk_id`, `source` | where the passage came from |
-| `keyword`, `filter_trigger` | what flagged it (`keyword` or `contextual`) |
-| `seed_constructs` | Christine's construct dimensions touched by the chunk's vocabulary |
-| `core_belief` | one-sentence belief summary from the filter step |
-| `filter_reason` | the filter's one-line reason for its decision (v3 prompts) |
-| `evidence`, `evidence_verbatim` | the sentence the filter quotes as carrying the belief, and whether it occurs verbatim in the chunk (v3 prompts) |
-| `tags`, `tag_names` | working classification codes |
-| `rejects` | codes the passage explicitly denies (v3 prompts) |
-| `constructs` | construct dimensions assigned by the tagger |
+| `keyword`, `keyword_tier`, `filter_trigger` | what selected it (`keyword` or `contextual`) |
+| `screen`, `filter_decision` | step 3 results; `filter_decision` is `SKIPPED` when the filter is off |
+| `open_labels`, `depicted_labels` | labels of the passage's stated beliefs and depicted themes |
+| `constructs` | the areas of the passage's beliefs |
 | `confidence` | HIGH / MEDIUM / LOW |
-| `new_candidate_label/definition` | proposed new code, if any |
 | `text_excerpt` | first 300 characters of the passage |
-| `human_decision`, `human_tags`, `coder_notes`, `resolved_tag` | *empty — for RA validation* |
-| `model_*`, `prompt_*`, `run_date` | full provenance |
+| `core_belief`, `filter_reason`, `evidence` | filled only when the filter is on |
+| `tags`, `tag_names`, `rejects`, `new_candidate_*` | filled only by the fixed-code prompts (`tag_v2`, `tag_v3`) |
+| `human_decision`, `human_tags`, `coder_notes`, `coder_id`, `date_coded`, `resolved_tag` | *empty, for RA validation* |
+| `model_*`, `prompt_*`, `run_date` | provenance |
 
-### `results/labeled/<source>_labeled.txt`
-One human-readable file per source. Shows every chunk with its pipeline decisions inline. Archived passages include the full belief summary and tags; screened-out chunks show briefly. Used for RA spot-checks (protocol §6): review ~10 YES and ~10 NO filter decisions after each run.
+### `labeled/<source>_labeled.txt`
+One readable file per text, showing **every** chunk with its full text and its decisions: keywords, screen result, each stated belief with stance, area and ratings, each depicted theme, or `OPEN CODE: none found`. This is the only output that lists passages where nothing was found and passages that were not selected.
 
-### `results/run_log.json`
-Exact model names, prompt versions, run date, chunk counts, token usage, and any errors. Required for the methods report.
+### `run_log.json`
+Provider, routing, model names, prompt versions, keyword version, whether the filter ran, run date, counts per text, token usage, cost, the host that answered, and any errors. Required for the methods report.
+
+### After clustering
+`open_code_clusters.csv` (every belief with its cluster), `cluster_summary.csv` (one row per cluster), `cluster_meta.json` (how the grouping was done) and `framework_master.xlsx`.
 
 ---
 
 ## Human validation
 
-The archive CSV has empty columns for RA coding. The validation procedure (protocol §6):
+Not yet designed for the current pipeline. The procedure in protocol §6 was written for the filter and the fixed code list (all MAYBE passages, all new-candidate proposals, a 20% sample of confident YES passages), and none of those categories exists under open coding.
 
-1. 100% of MAYBE passages are human-coded
-2. 100% of LOW-confidence tags are human-coded
-3. 100% of new-candidate proposals are human-coded
-4. A random 20% of HIGH-confidence YES passages are human-coded
+What is in place:
+- Passages the model marks LOW confidence are meant for human review.
+- `open_codes.csv` has empty columns for a human rating on each of the three dimensions; `depicted_themes.csv` has an empty reviewer decision; `pilot_archive.csv` has the original RA columns.
+- The labeled files show every chunk, so a coder can check passages the model coded as empty.
 
-RAs code **blind** — with AI columns hidden — using the labeled `.txt` files or a stripped version of the archive CSV. See protocol Part II for the RA coding manual and practice set.
+Still to decide: the sample of passages to be coded by hand, and the agreement statistics for belief presence, stance, area and ratings. Report agreement on texts the prompts were not developed on.
 
 ---
 
 ## File structure
 
 ```
-Annotation Pipeline/
-├── viewer.html                   ← open in browser to explore a run (open coding)
-├── viewer_legacy.html            ← earlier viewer, for runs with the fixed code list
-├── seed_topics.py                ← Christine's 9 construct dimensions + seed words
-├── pilot/
-│   ├── pipeline.py               ← main script (run this)
-│   ├── preprocess.py             ← text cleaning and chunking
-│   ├── keywords.py               ← keyword scan + seed word annotation
-│   ├── config.py                 ← settings: texts, models, chunk size, paths
-│   ├── prompts/
-│   │   ├── system_v1.txt         ← shared system prompt (v3 layout)
-│   │   ├── screen_v2.txt         ← screening task prompt
-│   │   ├── filter_v3.txt         ← filter task prompt
-│   │   ├── tag_open_v1.txt       ← open-coding task prompt (no code list)
-│   │   ├── rate_v1.txt           ← rating task prompt (step 5)
-│   │   ├── tag_v3.txt            ← tagging task prompt (working classification)
-│   │   ├── screen_v1.txt         ← original screening prompt
-│   │   ├── filter_v2.txt         ← original filter prompt
-│   │   └── tag_v2.txt            ← original tagging prompt
-│   └── results/
-│       ├── pilot_archive.csv
-│       ├── run_log.json
-│       └── labeled/
-│           └── <source>_labeled.txt
-└── texts/
-    ├── open access/              ← public domain corpus texts
-    └── free_to_read/             ← freely available texts
+SBA/
+├── pipeline.py                 ← main script (run this)
+├── config.py                   ← settings: texts, run name, provider, models, prompt versions
+├── preprocess.py               ← text cleaning and chunking
+├── keywords.py                 ← keyword scan
+├── try_passages.py             ← test the prompts on short passages
+├── test_passages.txt           ← eight test passages with expected coding
+├── cluster_open_codes.py       ← group stated beliefs into candidate themes
+├── build_master.py             ← write framework_master.xlsx
+├── viewer.html                 ← explore a run in the browser (open coding)
+├── viewer_legacy.html          ← earlier viewer, for runs with the fixed code list
+├── prompts/                    ← versioned prompt files (see "Prompts")
+├── texts/
+│   ├── open acess/             ← public-domain texts (the folder name is spelled this way)
+│   └── local/                  ← texts that cannot be shared; ignored by Git
+└── results/
+    ├── pilot_archive.csv, run_log.json, labeled/   ← the original Inferno pilot
+    └── <RUN_NAME>/             ← one folder per run; ignored by Git
 ```
 
 ---
 
 ## Reproducibility
 
-- Prompts are **versioned files** in `prompts/`. Never edit a prompt in place — create `screen_v2.txt` and update `config.py`. The old version stays on disk.
-- `run_log.json` records everything needed to re-run a batch identically.
-- All Claude calls use **temperature = 0** for deterministic output.
-- Passages are extracted by string slicing from source files — no retyping, no paraphrasing (quote-fidelity control, protocol §5 Step 2).
+- Prompts are **versioned files** in `prompts/`. Never edit a prompt that a run has used: create a new version file and change the version in `config.py`. The old version stays on disk.
+- `run_log.json` records what is needed to repeat a run.
+- All calls request **temperature 0**. `run_log.json` records whether the setting was applied.
+- Passages are extracted by string slicing from source files, with no retyping or paraphrasing (quote-fidelity control, protocol §5 Step 2). Evidence quotes are checked against the passage, ignoring only spacing and typographic quotes and dashes.
+- Each run writes to its own folder, so earlier results are never overwritten.
