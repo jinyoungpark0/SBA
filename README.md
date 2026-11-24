@@ -29,9 +29,25 @@ Runs so far:
 | Test passages | 18 Nov | 8 short constructed passages | `system_v1` / `tag_open_v1` / `rate_v1` | on | 8 of 8 coded as expected |
 | Run 2 | 18 Nov | Tao Te Ching, The Metamorphosis, two talk transcripts | `system_v1` / `tag_open_v1` / `rate_v1` | on | 4 of 42 candidate passages passed the filter; 26 beliefs; $0.47 |
 | Run 3 | 18 Nov | same four | `system_v1` / `tag_open_v2` / `rate_v1` | off | 42 of 42 coded; 136 beliefs, 74 from The Metamorphosis; $1.49 |
-| Run 4 | not yet run | same four | `system_v2` / `tag_open_v3` / `rate_v2` | off | |
+| Run 4 | 24 Nov | same four | `system_v2` / `tag_open_v3` / `rate_v2` | off | 42 of 42 coded; 93 stated beliefs, 39 from The Metamorphosis; 76 depicted themes, all from The Metamorphosis; $1.59 |
 
-Run 2 showed the filter was too strict. Run 3 showed open coding without the filter was too loose: no passage came back empty, and morals were read into the fiction. Run 4 separates stated beliefs from depicted themes to correct this.
+Run 2 showed the filter was too strict. Run 3 showed open coding without the filter was too loose: no passage came back empty, and morals were read into the fiction. Run 4 separated stated beliefs from depicted themes to correct this.
+
+**What run 4 showed.** The split works for the texts that argue directly and does not yet work for fiction.
+
+| Text | Stated beliefs, run 3 | Stated beliefs, run 4 | Depicted themes, run 3 | Depicted themes, run 4 |
+|---|---|---|---|---|
+| Tao Te Ching | 35 | 30 | 1 | 0 |
+| Brené Brown | 22 | 19 | 0 | 0 |
+| Andrew Solomon | 4 | 5 | 0 | 0 |
+| The Metamorphosis | 31 | 39 | 43 | 76 |
+
+- The Tao Te Ching and the two talks kept their yields and produced no depicted themes, as intended.
+- The Metamorphosis did not improve. Stated beliefs rose from 31 to 39, and 25 of its 26 coded passages still yielded at least one. Many rest on a character's remark about a particular situation, or on a sentence of narration, which the model generalized.
+- Depicted themes reached the limit of three in 24 of the 26 Kafka passages. The limit is acting as a target.
+- 41 of the 42 candidate passages yielded a stated belief. The coding step still does not return an empty answer for a passage that is about suffering but states no belief.
+
+The next revision of the open-coding prompt has to address these three points. Run 3's counts above treat its `depicts` entries as depicted themes.
 
 None of the prompts has been validated against human coding.
 
@@ -232,7 +248,7 @@ The models are the same under both; only their names differ. Report the provider
 
 **To change models:** edit `MODELS` in `config.py`.
 
-**Cost.** Run 3 (filter off, 42,500 words, 47 chunks) cost $1.49, or about $3.50 per 100,000 words. Steps 4 and 5 on Sonnet account for most of it.
+**Cost.** With the filter off, the four pilot texts (42,500 words, 47 chunks) cost $1.49 in run 3 and $1.59 in run 4, or about $3.50 to $3.75 per 100,000 words. Steps 4 and 5 on Sonnet account for most of it.
 
 ---
 
