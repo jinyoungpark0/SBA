@@ -2,9 +2,9 @@
 
 **Project:** Suffering Beliefs Framework (SBF), SHARE Lab, Duke University (named SCF Lab in the protocol)
 **Grant:** John Templeton Foundation FR#63879
-**Protocol:** `SBF_AI_Text_Analysis_Protocol_v2.docx` (August 2026)
+**Protocol:** `SBF_AI_Text_Analysis_Protocol_v2.docx` (August 2026, draft)
 
-The protocol describes an earlier design: a filter step and a fixed list of seven codes. This README describes the pipeline as it runs now. Where the two differ, the protocol and the coding manual have not yet been revised.
+The protocol is a draft. It describes an earlier design, with a filter step and a fixed list of seven codes, and it does not bind the pipeline. This README describes the pipeline as it runs now; the protocol and the coding manual will be revised to match what the pilot runs support.
 
 ---
 
@@ -16,9 +16,10 @@ The protocol describes an earlier design: a filter step and a fixed list of seve
 | System prompt | `system_v2` |
 | Screen (step 3a) | `screen_v2`, Claude Haiku 4.5 |
 | Filter (step 3b) | **off** (`USE_FILTER = False`) |
-| Open coding (step 4) | `tag_open_v3`, Claude Sonnet 4.6 |
+| Open coding (step 4) | `tag_open_v4`, Claude Sonnet 4.6 |
 | Areas and ratings (step 5) | `rate_v2`, Claude Sonnet 4.6 |
 | Provider | OpenRouter, restricted to Anthropic, data collection denied |
+| Passage selection | the screen decides; keywords are recorded but do not select a passage (`KEYWORD_SELECTS = False`, from run 6) |
 | Keywords | `keywords_v2` |
 
 Runs so far:
@@ -30,24 +31,45 @@ Runs so far:
 | Run 2 | 18 Nov | Tao Te Ching, The Metamorphosis, two talk transcripts | `system_v1` / `tag_open_v1` / `rate_v1` | on | 4 of 42 candidate passages passed the filter; 26 beliefs; $0.47 |
 | Run 3 | 18 Nov | same four | `system_v1` / `tag_open_v2` / `rate_v1` | off | 42 of 42 coded; 136 beliefs, 74 from The Metamorphosis; $1.49 |
 | Run 4 | 24 Nov | same four | `system_v2` / `tag_open_v3` / `rate_v2` | off | 42 of 42 coded; 93 stated beliefs, 39 from The Metamorphosis; 76 depicted themes, all from The Metamorphosis; $1.59 |
+| Run 5 | 24 Nov | same four | `system_v2` / `tag_open_v4` / `rate_v2` | off | 39 of 42 candidates yielded something; 67 stated beliefs, 20 from The Metamorphosis; 22 depicted themes, all from The Metamorphosis; $1.43 |
+| Run 6 | not yet run | same four | as run 5, with keywords recorded only | off | |
 
 Run 2 showed the filter was too strict. Run 3 showed open coding without the filter was too loose: no passage came back empty, and morals were read into the fiction. Run 4 separated stated beliefs from depicted themes to correct this.
 
+| Text | Stated, run 3 | Stated, run 4 | Stated, run 5 | Depicted, run 3 | Depicted, run 4 | Depicted, run 5 |
+|---|---|---|---|---|---|---|
+| Tao Te Ching | 35 | 30 | 23 | 1 | 0 | 0 |
+| Brené Brown | 22 | 19 | 19 | 0 | 0 | 0 |
+| Andrew Solomon | 4 | 5 | 5 | 0 | 0 | 0 |
+| The Metamorphosis | 31 | 39 | 20 | 43 | 76 | 22 |
+
+Run 3's counts treat its `depicts` entries as depicted themes.
+
 **What run 4 showed.** The split works for the texts that argue directly and does not yet work for fiction.
 
-| Text | Stated beliefs, run 3 | Stated beliefs, run 4 | Depicted themes, run 3 | Depicted themes, run 4 |
-|---|---|---|---|---|
-| Tao Te Ching | 35 | 30 | 1 | 0 |
-| Brené Brown | 22 | 19 | 0 | 0 |
-| Andrew Solomon | 4 | 5 | 0 | 0 |
-| The Metamorphosis | 31 | 39 | 43 | 76 |
+- The Tao Te Ching and the two talks kept their yields and produced no depicted themes, as intended. Most of their stated beliefs are maxims or generalizations in the speaker's own words.
+- The Metamorphosis did not improve. Stated beliefs rose from 31 to 39, and 25 of its 26 coded passages still yielded at least one. Read against the passages, about 8 of the 39 are general claims in a speaker's own words ("we people in commerce ... simply have to overcome it"). About 27 generalize a remark about one situation or a sentence of narration, and 4 repeat a belief from the overlap between chunks.
+- Depicted themes reached the limit of three in 24 of the 26 Kafka passages. The limit acted as a target.
+- 41 of the 42 candidate passages yielded a stated belief. The coding step did not return an empty answer for a passage that is about suffering but states no belief.
+- All three beliefs coded `denies` were malformed: the definition already gave the passage's own view, so the stance reversed its meaning.
+- 29 of 169 evidence quotes were not word for word. Of these, 13 joined separate parts with an ellipsis, 14 differed from the passage only in punctuation or capital letters, and 2 left words out.
 
-- The Tao Te Ching and the two talks kept their yields and produced no depicted themes, as intended.
-- The Metamorphosis did not improve. Stated beliefs rose from 31 to 39, and 25 of its 26 coded passages still yielded at least one. Many rest on a character's remark about a particular situation, or on a sentence of narration, which the model generalized.
-- Depicted themes reached the limit of three in 24 of the 26 Kafka passages. The limit is acting as a target.
-- 41 of the 42 candidate passages yielded a stated belief. The coding step still does not return an empty answer for a passage that is about suffering but states no belief.
+**What run 5 changed (`tag_open_v4`).**
+- A stated belief must be general in the speaker's own words. A remark about one person's, one family's or one character's situation is not a stated belief, and neither is narration of what a character did or felt.
+- The limit of three depicted themes is gone. Most passages are expected to have none, and no more than two are recorded.
+- The prompt says outright that a passage can be about suffering and state no belief, and gives an example of an empty answer.
+- A check on every `denies`, and a rule against leaving words out of the middle of an evidence quote.
 
-The next revision of the open-coding prompt has to address these three points. Run 3's counts above treat its `depicts` entries as depicted themes.
+**What run 5 showed.** The stricter prompt roughly halved the output from fiction and left the other texts close to where they were.
+
+- The Metamorphosis: stated beliefs fell from 39 to 20 and depicted themes from 76 to 22. Twenty passages have one theme, one has two, and none reached a limit.
+- Empty answers now occur. Three of the 42 candidate passages yielded nothing, and a further 11 Kafka passages yielded a depicted theme and no stated belief.
+- The rule on general wording is applied only in part. Of the 20 Kafka stated beliefs, about 8 are general in a speaker's own words and about 12 still rest on a remark about one situation ("Please, don't make my parents suffer!").
+- The Tao Te Ching fell from 30 to 23, and the two talks kept their counts. Between runs 4 and 5 the model did not always pick the same sentences from the same passage, so counts for a text should be read as approximate.
+- No belief was coded `denies`. The three malformed ones are gone, and the passage that rejects the idea that seeking help is weakness is now coded as endorsing the opposite.
+- 12 of 89 evidence quotes were not word for word, against 29 of 169 in run 4.
+
+Still open: particular remarks in fiction that are coded as stated beliefs, and repeats from the overlap between chunks.
 
 None of the prompts has been validated against human coding.
 
@@ -83,14 +105,16 @@ Every chunk is scanned for the protocol's tier 1 and tier 2 keywords (§4):
 - **Tier 1:** suffer\*, pain, hardship, adversity
 - **Tier 2:** affliction, misery, anguish, agony, torment, tribulation, ordeal, distress
 
-Inflected forms count (tormented, miserable, hardships); "pain" does not match "painted". The list has a version (`keywords_v2`) recorded in `run_log.json`. The list is short on purpose: a broader one flagged every chunk of the Inferno, and step 3a catches what the keywords miss.
+Inflected forms count (tormented, miserable, hardships); "pain" does not match "painted". The list has a version (`keywords_v2`) recorded in `run_log.json`.
 
-The scan can also record matches to Christine's seed words for nine construct dimensions. That list (`seed_topics.py`) is not in this repo, and without it the `seed_constructs` column is left blank. It plays no part in selecting or coding passages.
+From run 6 the keywords are **recorded only** (`KEYWORD_SELECTS = False` in `config.py`): they are noted for every chunk and reported, and the screen in step 3a decides which chunks are coded. Up to run 5 a keyword hit also sent a chunk to coding by itself.
 
 ### Step 3a: Screening (Claude Haiku)
 *Every* chunk is screened with a yes/no question: could any part of it plausibly be read as stating, implying or disputing a general claim about suffering? The screen favors recall: when unsure, YES.
 
-A chunk is a **candidate** if it has a keyword hit or screens YES. Candidates with no keyword are *contextual* passages, the ones a keyword search alone would have missed. In run 3, 18 of 42 candidates were contextual.
+A chunk is a **candidate** if it screens YES. Candidates with no keyword are *contextual* passages, the ones a keyword search alone would have missed: 18 of the 42 candidates in runs 3 to 5.
+
+The keyword scan was dropped as a selector because it added almost nothing once every chunk was screened. In run 4, 23 of the 24 keyword-hit chunks also screened YES, and the one passage that entered on its keyword alone gave a weak belief. The risk is that the screen misses a passage a keyword would have caught. `run_log.json` therefore counts the keyword-hit chunks the screen turned down (`keyword_screen_no`), and the labeled files show them, so they can be checked by hand. Set `KEYWORD_SELECTS = True` to restore the earlier rule.
 
 ### Step 3b: Filter (Claude Haiku), currently off
 The filter asks whether a candidate passage expresses a general belief about suffering, and answers YES, MAYBE or NO. It is switched off (`USE_FILTER = False` in `config.py`) because in run 2 it passed only 4 of 42 candidates, never answered MAYBE, rejected all of the fiction, and treated shame and vulnerability as outside suffering.
@@ -98,18 +122,18 @@ The filter asks whether a candidate passage expresses a general belief about suf
 With the filter off, every candidate goes to step 4, which makes the same judgment itself and may return nothing. The prompt (`filter_v3`) stays in the repo; whether to rewrite it more leniently for the full corpus, where cost matters more, is an open question.
 
 ### Step 4: Open coding (Claude Sonnet)
-The model is given **no code list and no list of topics**, so that beliefs nobody anticipated can surface. It records what the passage says about suffering in two separate lists (`tag_open_v3`).
+The model is given **no code list and no list of topics**, so that beliefs nobody anticipated can surface. It records what the passage says about suffering in two separate lists (`tag_open_v4`).
 
-**Stated beliefs** are general claims that the author, the narrator or a speaker actually puts into words. The model must be able to quote one continuous stretch of the passage in which the claim is made. For each it returns:
+**Stated beliefs** are general claims that the author, the narrator or a speaker actually puts into words. The model must be able to quote one continuous stretch of the passage in which the claim is made, and the generality must be in the speaker's own words: the stretch speaks of people in general, or it is a maxim or a rule. A remark about one person's situation is not a stated belief, however easy it is to draw a lesson from it. For each belief the model returns:
 - a two-to-four-word **label** and a one-sentence **definition** in everyday words
 - a verbatim **evidence** quote of at most 40 words
 - a **stance**: `endorses`, `denies` (the belief is stated in its positive form and the stance carries the rejection), `mentions` (reported as something people say, no side taken), or `conditional` (held only under a stated condition)
 
 These go to `open_codes.csv`, one row per belief.
 
-**Depicted themes** are what a story, poem or anecdote shows about suffering through its events, when no one in it says so. They are the model's reading. They are limited to three per passage, written to `depicted_themes.csv`, and never mixed into `open_codes.csv`.
+**Depicted themes** are what a story, poem or anecdote shows about suffering through its events, when no one in it says so. They are the model's reading. Most passages have none and no more than two are recorded. They are written to `depicted_themes.csv` and never mixed into `open_codes.csv`.
 
-Either list may be empty. The model also reports its **confidence** (HIGH, MEDIUM, LOW) that an independent coder would produce the same two lists.
+Either list may be empty, and a passage can be about suffering throughout and still state no belief. The model also reports its **confidence** (HIGH, MEDIUM, LOW) that an independent coder would produce the same two lists.
 
 What counts as a suffering belief is defined once, in the system prompt: the lab's definition of suffering, and five tests (claim, generality, individual difference, plain language, broad relevance) applied to each claim separately.
 
@@ -165,9 +189,10 @@ Prompt files, with the ones in use marked:
 |---|---|---|
 | `system_v2` | all | **in use** |
 | `screen_v2` | 3a | **in use** |
-| `tag_open_v3` | 4 | **in use**: stated beliefs and depicted themes as two lists |
+| `tag_open_v4` | 4 | **in use**: stated beliefs and depicted themes as two lists, with the stricter rules listed under Status |
 | `rate_v2` | 5 | **in use** |
 | `filter_v3` | 3b | not in use (filter off) |
+| `tag_open_v3` | 4 | used by run 4 |
 | `system_v1`, `tag_open_v1`, `tag_open_v2`, `rate_v1` | | used by runs 2 and 3 |
 | `tag_v3` | 4 | deductive coding against a fixed code list; for use once a classification exists |
 | `screen_v1`, `filter_v2`, `tag_v2` | | the original pilot's prompts |
@@ -184,7 +209,7 @@ The annotation viewer (`viewer.html`) is a self-contained browser tool for explo
 
 ### Loading data
 1. Open `viewer.html` in any modern browser
-2. Click **Open run folder** and choose the run's folder, for example `results/run4_depicted_separate` (or drop the folder onto the page)
+2. Click **Open run folder** and choose the run's folder, for example `results/run5_general_wording` (or drop the folder onto the page)
 
 The viewer picks up `open_codes.csv`, `depicted_themes.csv`, `pilot_archive.csv`, `run_log.json` and every file in `labeled/`. Any subset works. Without the labeled files, passages show only their first 300 characters and passages where nothing was found are not listed.
 
@@ -248,7 +273,7 @@ The models are the same under both; only their names differ. Report the provider
 
 **To change models:** edit `MODELS` in `config.py`.
 
-**Cost.** With the filter off, the four pilot texts (42,500 words, 47 chunks) cost $1.49 in run 3 and $1.59 in run 4, or about $3.50 to $3.75 per 100,000 words. Steps 4 and 5 on Sonnet account for most of it.
+**Cost.** With the filter off, the four pilot texts (42,500 words, 47 chunks) cost $1.49 in run 3, $1.59 in run 4 and $1.43 in run 5, or about $3.40 to $3.75 per 100,000 words. Steps 4 and 5 on Sonnet account for most of it.
 
 ---
 
@@ -280,7 +305,7 @@ One row per **passage** in which step 4 found at least one stated belief or depi
 | Column | What it contains |
 |--------|-----------------|
 | `chunk_id`, `source` | where the passage came from |
-| `keyword`, `keyword_tier`, `filter_trigger` | what selected it (`keyword` or `contextual`) |
+| `keyword`, `keyword_tier`, `filter_trigger` | the keywords it contains, and whether it has one (`keyword`) or none (`contextual`) |
 | `screen`, `filter_decision` | step 3 results; `filter_decision` is `SKIPPED` when the filter is off |
 | `open_labels`, `depicted_labels` | labels of the passage's stated beliefs and depicted themes |
 | `constructs` | the areas of the passage's beliefs |
@@ -295,7 +320,7 @@ One row per **passage** in which step 4 found at least one stated belief or depi
 One readable file per text, showing **every** chunk with its full text and its decisions: keywords, screen result, each stated belief with stance, area and ratings, each depicted theme, or `OPEN CODE: none found`. This is the only output that lists passages where nothing was found and passages that were not selected.
 
 ### `run_log.json`
-Provider, routing, model names, prompt versions, keyword version, whether the filter ran, run date, counts per text, token usage, cost, the host that answered, and any errors. Required for the methods report.
+Provider, routing, model names, prompt versions, keyword version, whether keywords selected passages, whether the filter ran, run date, counts per text (including keyword-hit chunks the screen turned down), token usage, cost, the host that answered, and any errors. Required for the methods report.
 
 ### After clustering
 `open_code_clusters.csv` (every belief with its cluster), `cluster_summary.csv` (one row per cluster), `cluster_meta.json` (how the grouping was done) and `framework_master.xlsx`.

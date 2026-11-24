@@ -264,7 +264,7 @@ const STATUS = {
   stated:   {label:"With stated beliefs",   color:"#2c2c2c", b:"The passage states at least one belief about suffering."},
   depicted: {label:"Depicted themes only",  color:"#7d5fb0", b:"The passage states no belief, but the coder recorded at least one depicted theme."},
   none:     {label:"Coded, nothing found",  color:"#b0aca2", b:"The passage was coded and neither list has an entry."},
-  uncoded:  {label:"Not coded",             color:"#d8d5cc", b:"The passage was not selected by the keyword scan or the screen, or the filter rejected it."},
+  uncoded:  {label:"Not coded",             color:"#d8d5cc", b:"The passage was not selected: the screen judged it not to be about suffering, or the filter rejected it."},
 };
 const RATINGS = {
   evaluation:     {label:"Evaluation",     short:"Eval",    b:"Is suffering only harmful, or can it also be of value? 1 = purely harmful. 3 = mixed or qualified. 5 = suffering can enrich a life."},
@@ -278,8 +278,8 @@ const CONF_TIPS = {
   LOW:    {h:"Low confidence",    b:"The passage is ambiguous, or it is unclear whether something is stated or only shown. Low cases go to human review."},
 };
 const TRIGGER_TIPS = {
-  keyword:    {h:"Keyword",    b:"Selected because the passage contains one of the suffering keywords."},
-  contextual: {h:"Contextual", b:"No keyword. Selected by the screening step as being about suffering."},
+  keyword:    {h:"Keyword",    b:"The passage contains one of the suffering keywords."},
+  contextual: {h:"No keyword", b:"The passage contains none of the suffering keywords. If it was coded, the screening step selected it."},
 };
 const CODED = ["YES","MAYBE","SKIPPED"];
 
@@ -689,7 +689,7 @@ function renderCards() {
     if (depicted.length) body += `<div class="sec-h">Depicted themes <em>· the coder's reading; nobody in the passage states these</em></div>` + depicted.map(e => entryHTML(e, efOn && !entryPass(e))).join("");
     if (!p.entries.length) {
       body += p.status === "uncoded"
-        ? `<div class="none-found">Not coded${filt==="NO"?" (the filter step rejected this passage)":p.screen==="NO"&&!isKw?" (no keyword, and the screen step judged it not to be about suffering)":""}.</div>`
+        ? `<div class="none-found">Not coded${filt==="NO"?" (the filter step rejected this passage)":p.screen==="NO"?" (the screen step judged it not to be about suffering)":""}.</div>`
         : (a.core_belief || a.tag_names) ? "" : `<div class="none-found">Coded. No stated belief and no depicted theme was recorded.</div>`;
     }
     if (a.core_belief) body += `<div class="legacy-line"><span>Filter step summary:</span> ${esc(a.core_belief)}</div>`;

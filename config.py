@@ -28,7 +28,7 @@ LOCAL_TEXTS_DIR = os.path.join(BASE_DIR, "texts", "local")
 # Change the name for every new run. Run folders are ignored by Git because the
 # archive and labeled files contain the full text of the sources.
 # Set to "" to write straight into results/, as the original pipeline did.
-RUN_NAME    = "run4_depicted_separate"
+RUN_NAME    = "run6_screen_selects"
 RESULTS_DIR = os.path.join(BASE_DIR, "results", RUN_NAME) if RUN_NAME else os.path.join(BASE_DIR, "results")
 PROMPTS_DIR = os.path.join(BASE_DIR, "prompts")
 
@@ -80,31 +80,44 @@ OPENROUTER_ROUTING = {
 #   are sent as the system message and SYSTEM_PROMPT_VERSION is not used.
 #
 # Tag step, two modes:
-#   tag_open_v3  two lists: stated beliefs (someone in the passage makes the general
-#                claim) and depicted themes (a story shows it, nobody states it).
-#                Themes go to results/depicted_themes.csv and never into
-#                open_codes.csv. Use with system_v2 and rate_v2.
-#   tag_open_v2  as tag_open_v1, for passages that have not been through the filter
-#   tag_open_v1  open coding. No code list; the tagger names each belief it finds
-#                (label, definition, evidence). Output: results/open_codes.csv, one
-#                row per belief. Use this first, to build the classification.
+#   tag_open_v4  open coding, current. Two lists: stated beliefs (someone in the
+#                passage makes the general claim, in general words) and depicted
+#                themes (a story shows it, nobody states it). Themes go to
+#                depicted_themes.csv and never into open_codes.csv. Tighter than
+#                v3: a remark about one person's situation is not a stated belief,
+#                at most two themes per passage, and an empty answer is expected
+#                for many passages. Use with system_v2 and rate_v2.
+#   tag_open_v3  run 4. First version with the two lists.
+#   tag_open_v2  run 3. One list, for passages that have not been through the filter.
+#   tag_open_v1  run 2. One list; the tagger names each belief it finds.
 #   tag_v3       deductive coding against WORKING_CLASSIFICATION in pipeline.py.
 #                Use once a classification has been built from the open codes.
 SYSTEM_PROMPT_VERSION = "system_v2"
 SCREEN_PROMPT_VERSION = "screen_v2"
 FILTER_PROMPT_VERSION = "filter_v3"
-TAG_PROMPT_VERSION    = "tag_open_v3"
+TAG_PROMPT_VERSION    = "tag_open_v4"
 
 # Step 3b, the filter. In run 2 it passed only 4 of 42 candidate chunks and never
 # answered MAYBE, so most of the texts were never coded.
-#   False : skip it. Every keyword-hit or screened-YES chunk goes straight to the
-#           tag step, which can itself answer "no beliefs" (use tag_open_v2).
-#           A chunk is archived if the tag step finds at least one belief.
+#   False : skip it. Every candidate chunk (screened YES; see KEYWORD_SELECTS) goes
+#           straight to the tag step, which can itself answer that the passage states no belief
+#           (tag_open_v2 or later). A chunk is archived if the tag step finds at
+#           least one stated belief or depicted theme.
 #   True  : run the filter as before; only YES and MAYBE chunks are tagged.
 USE_FILTER = False
 
+# Step 2, the keyword scan. Every chunk is screened in step 3a, so the scan is not
+# needed to find passages: in run 4, 23 of the 24 keyword-hit chunks also screened
+# YES, and the one passage that entered on its keyword alone gave a weak belief.
+#   False : keywords are recorded for every chunk but do not select it. A chunk is
+#           coded only if the screen says YES. run_log.json counts the keyword-hit
+#           chunks the screen turned down, so they can be checked by hand.
+#   True  : a keyword hit sends a chunk to coding even when the screen says NO,
+#           as in runs 2 to 5.
+KEYWORD_SELECTS = False
+
 # Step 5: place each open-coded belief in an area (BELIEF_AREAS in pipeline.py)
 # and rate it on evaluation, inevitability and intertwinement (1-5, blank = no
-# position). Runs only after tag_open_v1. Set to None to skip the step; areas
-# and ratings are then left blank.
+# position). Runs only after an open-coding prompt (tag_open_*). Set to None to
+# skip the step; areas and ratings are then left blank.
 RATE_PROMPT_VERSION   = "rate_v2"

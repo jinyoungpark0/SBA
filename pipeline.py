@@ -634,9 +634,10 @@ def run():
         "rate_model":    getattr(config, "RATE_MODEL", ""),
         "rate_prompt":   getattr(config, "RATE_PROMPT_VERSION", None) or "",
         "keywords":      KEYWORDS_VERSION,
+        "keyword_selects": getattr(config, "KEYWORD_SELECTS", True),
         "seed_topics":   SEED_TOPICS_LOADED,
         "texts":         [],
-        "totals": {"chunks": 0, "keyword_hits": 0, "contextual": 0, "archived": 0},
+        "totals": {"chunks": 0, "keyword_hits": 0, "contextual": 0, "keyword_screen_no": 0, "archived": 0},
         "tokens": {"input": 0, "output": 0},
         "errors": [],
     }
@@ -685,8 +686,17 @@ def run():
         n_ctx = sum(1 for c in chunks if c["screen"] == "YES" and not c["is_keyword_hit"])
         print(f"  {n_ctx} contextual (screen YES, no keyword)")
 
-        # Step 3b — filter keyword hits + contextual chunks
-        to_filter = [c for c in chunks if c["is_keyword_hit"] or c["screen"] == "YES"]
+        # Candidates. The screen decides. A keyword hit alone also makes a chunk a
+        # candidate only when KEYWORD_SELECTS is on (as in runs 2 to 5).
+        keyword_selects = getattr(config, "KEYWORD_SELECTS", True)
+        n_kw_no = sum(1 for c in chunks if c["is_keyword_hit"] and c["screen"] != "YES")
+        if n_kw_no:
+            print(f"  {n_kw_no} keyword hits the screen turned down "
+                  f"({'coded anyway' if keyword_selects else 'recorded, not coded'})")
+
+        # Step 3b — filter the candidates
+        to_filter = [c for c in chunks
+                     if c["screen"] == "YES" or (keyword_selects and c["is_keyword_hit"])]
         use_filter = getattr(config, "USE_FILTER", True)
         if use_filter:
             print(f"  Filtering {len(to_filter)} candidates...")
@@ -880,8 +890,10 @@ def run():
             "chunks":       len(chunks),
             "keyword_hits": n_kw,
             "contextual":   n_ctx,
+            "keyword_screen_no": n_kw_no,
             "archived":     n_archived,
         })
+        run_log["totals"]["keyword_screen_no"] += n_kw_no
         run_log["totals"]["chunks"]       += len(chunks)
         run_log["totals"]["keyword_hits"] += n_kw
         run_log["totals"]["contextual"]   += n_ctx
@@ -929,6 +941,8 @@ def run():
     print(f"  Chunks:         {t['chunks']}")
     print(f"  Keyword hits:   {t['keyword_hits']}")
     print(f"  Contextual:     {t['contextual']}")
+    print(f"  Keyword hits the screen turned down: {t['keyword_screen_no']} "
+          f"({'coded anyway' if run_log['keyword_selects'] else 'not coded'})")
     print(f"  Archived:       {t['archived']}")
     print(f"  Tokens in/out:  {run_log['tokens']['input']:,} / {run_log['tokens']['output']:,}")
     print(f"  Errors:         {len(run_log['errors'])}")
