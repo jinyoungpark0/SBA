@@ -6,16 +6,23 @@ Input:   open_codes.csv in the current run's results folder (stated beliefs only
          python cluster_open_codes.py --input results/<run>/depicted_themes.csv
 Output:  results/open_code_clusters.csv   every belief, with its cluster and map position
          results/cluster_summary.csv      one row per cluster, for the consolidation meeting
+         results/cluster_meta.json        how the grouping was done (read by build_master.py)
 
 Each belief's one-sentence definition is turned into a vector, beliefs with similar
 definitions are grouped, and each group is summarised. The clusters are a first
 draft for the team to name, merge and split. They are not the classification.
 
+Every definition is about suffering, so the vectors share a large common part. Left in,
+it makes most beliefs look alike and the grouping collapses into one very large cluster.
+By default the common part (the mean vector) is removed before grouping. --no-centre
+keeps the vectors as they are, which is how this script worked before.
+
 Usage:
     python cluster_open_codes.py                 # default grouping
     python cluster_open_codes.py --scan          # show cluster counts at several thresholds
-    python cluster_open_codes.py --threshold 0.5 # looser groups (fewer, larger clusters)
+    python cluster_open_codes.py --threshold 0.85 # looser groups (fewer, larger clusters)
     python cluster_open_codes.py --k 30          # ask for exactly 30 clusters
+    python cluster_open_codes.py --no-centre     # earlier behaviour (default threshold 0.45)
 
 Needs: pandas, numpy, scikit-learn and sentence-transformers
 (`pip install sentence-transformers`; the first run downloads a small model).
@@ -24,6 +31,8 @@ Without sentence-transformers the script still runs, grouping by shared words
 """
 
 import argparse
+import datetime
+import json
 import os
 import re
 
@@ -55,6 +64,15 @@ def embed(texts):
     return np.asarray(model.encode(list(texts), normalize_embeddings=True)), EMBEDDING_MODEL
 
 
+def remove_common(X):
+    """Remove what all the vectors have in common (their mean) and rescale to unit length."""
+    Xc = X - X.mean(axis=0)
+    norms = np.linalg.norm(Xc, axis=1, keepdims=True)
+    flat = norms[:, 0] < 1e-9                    # a vector equal to the mean has nothing left: keep it as it was
+    Xc[flat], norms[flat] = X[flat], 1.0
+    return Xc / norms
+
+
 def cluster(X, threshold=None, k=None):
     """Average-linkage clustering on cosine distance. Returns labels numbered from 1, largest first."""
     kw = dict(linkage="average", n_clusters=k, distance_threshold=None if k else threshold)
@@ -83,8 +101,11 @@ def mark_duplicates(df):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0].strip())
     ap.add_argument("--input", default=os.path.join(config.RESULTS_DIR, "open_codes.csv"))
-    ap.add_argument("--threshold", type=float, default=0.45,
-                    help="cosine distance at which groups stop merging (0-1); higher = fewer, larger clusters")
+    ap.add_argument("--threshold", type=float, default=None,
+                    help="cosine distance at which groups stop merging; higher = fewer, larger clusters "
+                         "(default 0.80, or 0.45 with --no-centre)")
+    ap.add_argument("--no-centre", action="store_true",
+                    help="do not remove the part all definitions share before grouping")
     ap.add_argument("--k", type=int, default=None, help="exact number of clusters (overrides --threshold)")
     ap.add_argument("--scan", action="store_true", help="print cluster counts for a range of thresholds and stop")
     args = ap.parse_args()
@@ -99,12 +120,21 @@ def main():
         raise SystemExit("Too few beliefs to cluster.")
 
     X, method = embed(keep["definition"])
+    centred = not args.no_centre
+    if centred:
+        X = remove_common(X)
+    if args.threshold is None:
+        args.threshold = 0.80 if centred else 0.45
 
     if args.scan:
-        print("threshold  clusters  single-belief clusters")
-        for t in (0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.70):
+        print("threshold  clusters  single-belief clusters  largest cluster")
+        scan = (0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90) if centred else \
+               (0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.70)
+        for t in scan:
             sizes = pd.Series(cluster(X, threshold=t)).value_counts()
-            print(f"   {t:.2f}     {len(sizes):5d}     {int((sizes == 1).sum()):5d}")
+            print(f"   {t:.2f}     {len(sizes):5d}     {int((sizes == 1).sum()):5d}"
+                  f"                   {int(sizes.iloc[0]):5d}")
+        print("\nA good setting has few single-belief clusters and no cluster that holds a large share of all beliefs.")
         return
 
     keep["cluster"] = cluster(X, threshold=args.threshold, k=args.k)
@@ -139,6 +169,11 @@ def main():
     sum_path = os.path.join(config.RESULTS_DIR, "cluster_summary.csv")
     out.to_csv(out_path, index=False)
     summary.to_csv(sum_path, index=False)
+    with open(os.path.join(config.RESULTS_DIR, "cluster_meta.json"), "w", encoding="utf-8") as f:
+        json.dump({"date": datetime.date.today().isoformat(), "input": os.path.basename(args.input),
+                   "method": method, "centred": centred,
+                   "threshold": None if args.k else args.threshold, "k": args.k,
+                   "beliefs_clustered": int(len(keep)), "clusters": int(len(summary))}, f, indent=2)
 
     singles = int((summary["n_beliefs"] == 1).sum())
     print(f"method: {method}   clusters: {len(summary)}   single-belief clusters: {singles}")

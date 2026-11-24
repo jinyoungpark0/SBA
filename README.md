@@ -67,7 +67,9 @@ The earlier seven-code working classification (punishment, growth, craving, shar
 Only after the beliefs have been named are they placed on a fixed grid. Each belief gets one **area**; each asserted belief is also rated 1–5 on evaluation, inevitability and intertwinement, with blank meaning the belief takes no position. See "Prompt layout" below.
 
 ### After the run — Clustering
-`python cluster_open_codes.py` groups the beliefs by the similarity of their definitions and writes `results/cluster_summary.csv`: one row per candidate theme, with its size, most common labels and most central definition, for the team to name, merge and split into classification v1. It needs `pip install pandas scikit-learn sentence-transformers`; use `--scan` to see how many clusters different thresholds give, and `--k 30` to ask for a fixed number.
+`python cluster_open_codes.py` groups the beliefs by the similarity of their definitions and writes `results/cluster_summary.csv`: one row per candidate theme, with its size, most common labels and most central definition, for the team to name, merge and split into classification v1. It needs `pip install pandas scikit-learn sentence-transformers`; use `--scan` to see how many clusters different thresholds give, and `--k 30` to ask for a fixed number. Every definition is about suffering, so their vectors share a large common part; the script removes it before grouping (otherwise most beliefs fall into one very large cluster). `--no-centre` turns this off.
+
+`python build_master.py` then writes `results/<run>/framework_master.xlsx`, the summary file for framework generation. Its Themes sheet has one row per candidate theme: definition, keywords, area, number of beliefs and texts, stance counts, mean ratings, example quotes, how many depicted themes support it, and empty columns for the team's name, decision and notes. The other sheets give coverage by area and text, each depicted theme with its nearest stated theme, and every stated belief with its theme. Counts and means are formulas, so they update when a belief is moved to another theme. It needs `pip install openpyxl` as well. A `stream` column marks where each belief comes from, so beliefs from the interviews, surveys and reviews can be appended later.
 
 ---
 
@@ -109,32 +111,33 @@ The v3 prompts were drafted after reading pilot output and have not yet been val
 
 ## Exploring results — the Viewer
 
-The annotation viewer (`viewer.html`, in the root of this folder) is a self-contained browser tool for exploring any archive CSV. No server needed — open it directly.
+The annotation viewer (`viewer.html`, in the root of this folder) is a self-contained browser tool for exploring one run. No server needed — open it directly. It reads the open-coding outputs. For a run that used the fixed code list (`tag_v2`, `tag_v3`), use `viewer_legacy.html`, which is the earlier viewer unchanged.
 
 ### Loading data
 1. Open `viewer.html` in any modern browser
-2. Drag `results/pilot_archive.csv` onto the page (or click to browse)
-3. Optionally load the companion `results/labeled/<source>_labeled.txt` file — this enables full passage context
+2. Click **Open run folder** and choose the run's folder, for example `results/run4_depicted_separate` (or drop the folder onto the page)
+
+The viewer picks up `open_codes.csv`, `depicted_themes.csv`, `pilot_archive.csv`, `run_log.json` and every file in `labeled/`. Any subset works. Without the labeled files, passages show only their first 300 characters and passages where nothing was found are not listed.
 
 ### What the viewer shows
 
-**Summary charts (left sidebar):**
-- **Belief tag distribution** — how many passages express each type of suffering belief; click any bar to filter to those passages; updates the construct chart
-- **Construct dimensions** — which of Christine's nine dimensions appear in the currently-selected passages; click to filter further; this chart cross-filters with the tag selection (true linked exploration)
-- **Tag co-occurrence matrix** — which belief types tend to appear together in the same passage; click any cell to filter to passages that express both beliefs simultaneously
+**Summary charts (left sidebar), each clickable as a filter:**
+- **Passages** — with stated beliefs, with depicted themes only, coded with nothing found, not coded
+- **Texts** — passages per text
+- **Belief areas** — stated beliefs and depicted themes by step 5 area
+- **Stance** — endorses, denies, mentions, conditional, and depicted theme
+- **Ratings** — distribution of the three 1-5 ratings over stated beliefs, including beliefs with no rating
 
-**Passage cards:**
-- Core belief statement extracted by the model
-- Belief type tags (click to filter) with hover explanations
-- Construct dimension chips (click to filter) with hover explanations
-- Confidence badge and trigger type (keyword-matched vs. contextual) with hover explanations
-- Full text excerpt, expandable
+**Passage cards (Passages view):**
+- Stated beliefs: label, definition, stance, area, ratings, evidence quote and the basis for the ratings
+- Depicted themes, listed separately and marked as the coder's reading
+- A flag on any evidence quote not found word for word in the passage
+- The full passage with the evidence quotes marked, and the two passages before and after it
 
-**Full context panel** (requires labeled file):
-Click "Show in context" on any card to see the two chunks before and after the archived passage, each showing its own screen/filter result. This lets reviewers judge whether a passage's neighbors were correctly handled and understand the full textual moment the belief appears in.
+**Beliefs view:** one row per stated belief or depicted theme, sortable by column. Click a row to go to its passage.
 
 ### EDA workflow
-The charts use **cross-filtering**: the construct chart always shows the construct distribution *within your current tag selection*, not across all passages. This means clicking "Punishment" in the tag chart immediately answers "in punishment passages, which constructs are invoked?" — select "fairness" to drill into passages that frame punishment-as-suffering through a fairness lens. The search box narrows cards and both charts simultaneously.
+The charts use **cross-filtering**: each chart shows its distribution *within the other current selections*. Selecting one text and then the area "causes" answers "what does this text say about why people suffer?"; selecting Intertwinement 1 lists every belief rated as treating suffering as separate from the good things in life. The search box narrows cards, table and charts together.
 
 ---
 
@@ -149,7 +152,7 @@ python try_passages.py                    # a few short test passages first
 python pipeline.py                        # the texts listed in PILOT_TEXTS
 ```
 
-Results land in `results/<RUN_NAME>/` (`RUN_NAME` is set in `config.py`; change it for each run so nothing is overwritten). Then open `viewer.html` in a browser and load that folder's archive CSV. With OpenRouter, the run's cost is printed at the end and saved in `run_log.json`.
+Results land in `results/<RUN_NAME>/` (`RUN_NAME` is set in `config.py`; change it for each run so nothing is overwritten). Then open `viewer.html` in a browser and open that run's folder. With OpenRouter, the run's cost is printed at the end and saved in `run_log.json`.
 
 **Texts that cannot be shared.** Put copyrighted transcripts and licensed translations in `texts/local/`. Git ignores that folder and the run folders under `results/`, because the archive and labeled files contain the full text of the sources. A file named in `PILOT_TEXTS` is looked for in the main texts folder first, then in `texts/local/`.
 
@@ -215,7 +218,8 @@ RAs code **blind** — with AI columns hidden — using the labeled `.txt` files
 
 ```
 Annotation Pipeline/
-├── viewer.html                   ← open in browser to explore any archive CSV
+├── viewer.html                   ← open in browser to explore a run (open coding)
+├── viewer_legacy.html            ← earlier viewer, for runs with the fixed code list
 ├── seed_topics.py                ← Christine's 9 construct dimensions + seed words
 ├── pilot/
 │   ├── pipeline.py               ← main script (run this)
